@@ -49,6 +49,7 @@ import {
 } from '../square/invoices'
 import { runSquareSync } from '../square/sync'
 import { listSquareLocations, SquareApiError } from '../square/client'
+import { syncContactToSquare, deleteSquareCustomerIfLinked } from '../square/customers'
 import { saveSquareCredentials, squareSettingsSummary } from '../secrets/square-credentials'
 import { sendMail } from '../email/smtp'
 import {
@@ -192,11 +193,17 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(
     'contacts:update',
-    async (_event, { id, input }: { id: string; input: UpdateContactInput }) =>
-      updateContact(id, input)
+    async (_event, { id, input }: { id: string; input: UpdateContactInput }) => {
+      const updated = await updateContact(id, input)
+      if (updated && (input.name !== undefined || input.email !== undefined || input.phone !== undefined)) {
+        await syncContactToSquare(id)
+      }
+      return updated
+    }
   )
 
   ipcMain.handle('contacts:delete', async (_event, id: string) => {
+    await deleteSquareCustomerIfLinked(id)
     await deleteContact(id)
   })
 

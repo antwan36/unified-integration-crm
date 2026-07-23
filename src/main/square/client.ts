@@ -23,7 +23,7 @@ function baseUrl(environment: SquareCredentials['environment']): string {
 
 export async function squareRequest<T>(
   creds: Pick<SquareCredentials, 'accessToken' | 'environment'>,
-  method: 'GET' | 'POST' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   path: string,
   body?: unknown
 ): Promise<T> {
