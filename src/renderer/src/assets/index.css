@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-neutral-950 text-neutral-100 antialiased;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+}
+
+/* Printing an invoice/estimate: flip the dark UI to plain black-on-white paper
+   and hide chrome (sidebar, buttons, nav links). */
+@media print {
+  * {
+    background: #fff !important;
+    color: #000 !important;
+    border-color: #d4d4d4 !important;
+  }
+  aside,
+  button,
+  .no-print {
+    display: none !important;
+  }
+  main {
+    overflow: visible !important;
+  }
+}

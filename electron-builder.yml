@@ -1,0 +1,18 @@
+appId: com.unifiedintegration.crm
+productName: Unified Integration CRM
+directories:
+  buildResources: build
+files:
+  - out/**/*
+  - '!**/.vscode/*'
+  - '!src/**'
+mac:
+  category: public.app-category.business
+  icon: build/icon.png
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+dmg:
+  artifactName: '${productName}-${version}-${arch}.${ext}'
