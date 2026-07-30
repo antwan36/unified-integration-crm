@@ -144,6 +144,12 @@ export default function ContactDetail(): React.JSX.Element {
     load()
   }
 
+  const onDeleteNote = async (activityId: string): Promise<void> => {
+    if (!confirm('Delete this note? This can\'t be undone.')) return
+    await window.api.contacts.deleteNote(activityId)
+    load()
+  }
+
   const onAddTask = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     if (!taskTitle.trim()) return
@@ -702,12 +708,23 @@ export default function ContactDetail(): React.JSX.Element {
                   <span>{ACTIVITY_ICON[a.type] ?? '•'}</span>
                   <span>{a.subject ?? a.type.replace('_', ' ')}</span>
                 </div>
-                <span className="text-xs text-neutral-500">
+                <span className="flex items-center gap-2 text-xs text-neutral-500">
                   {new Date(a.occurredAt).toLocaleString()}
+                  {a.type === 'note' && (
+                    <button
+                      onClick={() => onDeleteNote(a.id)}
+                      className="text-neutral-600 hover:text-red-400"
+                      title="Delete note"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </span>
               </div>
               {a.body && (
-                <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-400">{a.body}</p>
+                <p className="mt-2 whitespace-pre-wrap break-words text-sm text-neutral-400">
+                  {a.body}
+                </p>
               )}
               {a.type === 'email' && a.direction === 'inbound' && (
                 <button
@@ -725,17 +742,17 @@ export default function ContactDetail(): React.JSX.Element {
 
       <div className="mt-8">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-neutral-300">Estimates</h2>
+          <h2 className="text-sm font-semibold text-neutral-300">Quotes</h2>
           <Link
             to={`/contacts/${contact.id}/estimates/new`}
             className="rounded bg-primary px-3 py-1.5 text-xs font-semibold text-black"
           >
-            + New estimate
+            + New quote
           </Link>
         </div>
         <div className="space-y-2">
           {estimates.length === 0 && (
-            <p className="text-sm text-neutral-500">No estimates yet.</p>
+            <p className="text-sm text-neutral-500">No quotes yet.</p>
           )}
           {estimates.map((est) => (
             <Link

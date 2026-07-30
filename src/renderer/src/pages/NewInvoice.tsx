@@ -17,7 +17,8 @@ function defaultDueDate(): string {
 export interface CopyFromState {
   title: string
   taxPercent: number
-  lineItems: { description: string; quantity: number; unitPriceCents: number }[]
+  shippingCents: number
+  lineItems: { description: string; quantity: number; unitPriceCents: number; link: string | null }[]
 }
 
 export default function NewInvoice(): React.JSX.Element {
@@ -33,11 +34,14 @@ export default function NewInvoice(): React.JSX.Element {
   const [lineItems, setLineItems] = useState<LineItemDraft[]>(
     copyFrom
       ? copyFrom.lineItems.map((li) =>
-          lineItemDraftFrom(li.description, li.unitPriceCents, String(li.quantity))
+          lineItemDraftFrom(li.description, li.unitPriceCents, String(li.quantity), li.link ?? '')
         )
       : [emptyLineItem()]
   )
   const [taxPercent, setTaxPercent] = useState(copyFrom?.taxPercent ? String(copyFrom.taxPercent) : '')
+  const [shipping, setShipping] = useState(
+    copyFrom?.shippingCents ? (copyFrom.shippingCents / 100).toFixed(2) : ''
+  )
   const [pendingAction, setPendingAction] = useState<'draft' | 'send' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([])
@@ -61,7 +65,8 @@ export default function NewInvoice(): React.JSX.Element {
   }, 0)
   const taxPercentValue = Number(taxPercent) || 0
   const taxCents = Math.round(subtotalCents * (taxPercentValue / 100))
-  const totalCents = subtotalCents + taxCents
+  const shippingCents = Math.round((Number(shipping) || 0) * 100)
+  const totalCents = subtotalCents + taxCents + shippingCents
 
   const canSubmit =
     !!contactId &&
@@ -79,13 +84,15 @@ export default function NewInvoice(): React.JSX.Element {
         title: title.trim(),
         dueDate,
         taxPercent: taxPercentValue,
+        shippingCents,
         draft,
         lineItems: lineItems
           .filter((item) => item.description.trim() && Number(item.unitPrice) > 0)
           .map((item) => ({
             description: item.description.trim(),
             quantity: Number(item.quantity) || 1,
-            unitPriceCents: Math.round(Number(item.unitPrice) * 100)
+            unitPriceCents: Math.round(Number(item.unitPrice) * 100),
+            link: item.link.trim() || null
           }))
       })
       navigate(draft ? `/invoices/${invoice.id}` : `/contacts/${contactId}`)
@@ -163,17 +170,31 @@ export default function NewInvoice(): React.JSX.Element {
 
         <LineItemsGrid items={lineItems} onChange={setLineItems} catalogItems={catalogItems} />
 
-        <div>
-          <label className="mb-1 block text-xs text-neutral-400">Tax %</label>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={taxPercent}
-            onChange={(e) => setTaxPercent(e.target.value)}
-            placeholder="0"
-            className="w-28 rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm text-white outline-none focus:border-primary"
-          />
+        <div className="flex gap-3">
+          <div>
+            <label className="mb-1 block text-xs text-neutral-400">Tax %</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={taxPercent}
+              onChange={(e) => setTaxPercent(e.target.value)}
+              placeholder="0"
+              className="w-28 rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm text-white outline-none focus:border-primary"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-neutral-400">Shipping ($)</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={shipping}
+              onChange={(e) => setShipping(e.target.value)}
+              placeholder="0.00"
+              className="w-28 rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm text-white outline-none focus:border-primary"
+            />
+          </div>
         </div>
 
         <div className="flex items-center justify-between border-t border-neutral-800 pt-4">
@@ -185,6 +206,11 @@ export default function NewInvoice(): React.JSX.Element {
               <div>
                 Tax ({taxPercentValue}%):{' '}
                 <span className="text-white">${(taxCents / 100).toFixed(2)}</span>
+              </div>
+            )}
+            {shippingCents > 0 && (
+              <div>
+                Shipping: <span className="text-white">${(shippingCents / 100).toFixed(2)}</span>
               </div>
             )}
             <div className="font-semibold">

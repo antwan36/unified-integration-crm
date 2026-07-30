@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import type {
   EmailAccount,
+  PlaidEnvironment,
+  PlaidSettings,
+  PlaidSyncResult,
   SquareEnvironment,
   SquareSettings,
   SquareSyncResult,
@@ -25,7 +28,10 @@ export default function Settings(): React.JSX.Element {
   const [accounts, setAccounts] = useState<EmailAccount[]>([])
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null)
   const [accountForm, setAccountForm] = useState(EMPTY_ACCOUNT_FORM)
-  const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null)
+  const [testResult, setTestResult] = useState<{
+    imap: { ok: boolean; error?: string }
+    smtp: { ok: boolean; error?: string }
+  } | null>(null)
   const [testing, setTesting] = useState(false)
   const [savingAccount, setSavingAccount] = useState(false)
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null)
@@ -43,9 +49,23 @@ export default function Settings(): React.JSX.Element {
   const [squareSyncResult, setSquareSyncResult] = useState<SquareSyncResult | null>(null)
   const [squareSyncing, setSquareSyncing] = useState(false)
 
+  const [plaidCurrent, setPlaidCurrent] = useState<PlaidSettings | null>(null)
+  const [plaidForm, setPlaidForm] = useState({
+    clientId: '',
+    secret: '',
+    environment: 'sandbox' as PlaidEnvironment
+  })
+  const [plaidSaving, setPlaidSaving] = useState(false)
+  const [plaidSyncResult, setPlaidSyncResult] = useState<PlaidSyncResult | null>(null)
+  const [plaidSyncing, setPlaidSyncing] = useState(false)
+
   const [portalUrl, setPortalUrl] = useState('')
   const [portalUrlSaved, setPortalUrlSaved] = useState<string | null>(null)
   const [portalSaving, setPortalSaving] = useState(false)
+
+  const [reviewLink, setReviewLink] = useState('')
+  const [reviewLinkSaved, setReviewLinkSaved] = useState<string | null>(null)
+  const [reviewLinkSaving, setReviewLinkSaving] = useState(false)
 
   const [calendarFeedUrl, setCalendarFeedUrl] = useState<string | null>(null)
   const [calendarResetting, setCalendarResetting] = useState(false)
@@ -70,9 +90,17 @@ export default function Settings(): React.JSX.Element {
       setSquareForm((f) => ({ ...f, environment: square.environment, locationId: square.locationId }))
     }
 
+    const plaid = await window.api.settings.getPlaid()
+    setPlaidCurrent(plaid)
+    if (plaid) setPlaidForm((f) => ({ ...f, environment: plaid.environment }))
+
     const savedPortalUrl = await window.api.settings.getPortalUrl()
     setPortalUrlSaved(savedPortalUrl)
     if (savedPortalUrl) setPortalUrl(savedPortalUrl)
+
+    const savedReviewLink = await window.api.settings.getGoogleReviewLink()
+    setReviewLinkSaved(savedReviewLink)
+    if (savedReviewLink) setReviewLink(savedReviewLink)
 
     setCalendarFeedUrl(await window.api.settings.getCalendarFeedUrl())
 
@@ -127,14 +155,23 @@ export default function Settings(): React.JSX.Element {
     setTesting(true)
     setTestResult(null)
     try {
-      const result = await window.api.emailAccounts.test({
-        host: accountForm.host,
-        port: Number(accountForm.port),
-        secure: accountForm.secure,
-        user: accountForm.user,
-        password: accountForm.password
-      })
-      setTestResult(result)
+      const [imap, smtp] = await Promise.all([
+        window.api.emailAccounts.test({
+          host: accountForm.host,
+          port: Number(accountForm.port),
+          secure: accountForm.secure,
+          user: accountForm.user,
+          password: accountForm.password
+        }),
+        window.api.emailAccounts.testSmtp({
+          smtpHost: accountForm.smtpHost,
+          smtpPort: Number(accountForm.smtpPort),
+          smtpSecure: accountForm.smtpSecure,
+          user: accountForm.user,
+          password: accountForm.password
+        })
+      ])
+      setTestResult({ imap, smtp })
     } finally {
       setTesting(false)
     }
@@ -149,7 +186,7 @@ export default function Settings(): React.JSX.Element {
         port: Number(accountForm.port),
         secure: accountForm.secure,
         user: accountForm.user,
-        smtpHost: accountForm.smtpHost || accountForm.host,
+        smtpHost: accountForm.smtpHost,
         smtpPort: Number(accountForm.smtpPort),
         smtpSecure: accountForm.smtpSecure
       }
@@ -229,6 +266,31 @@ export default function Settings(): React.JSX.Element {
     }
   }
 
+  const onSavePlaid = async (): Promise<void> => {
+    setPlaidSaving(true)
+    try {
+      await window.api.settings.savePlaid({
+        clientId: plaidForm.clientId,
+        secret: plaidForm.secret,
+        environment: plaidForm.environment
+      })
+      setPlaidForm((f) => ({ ...f, clientId: '', secret: '' }))
+      await load()
+    } finally {
+      setPlaidSaving(false)
+    }
+  }
+
+  const onSyncPlaid = async (): Promise<void> => {
+    setPlaidSyncing(true)
+    setPlaidSyncResult(null)
+    try {
+      setPlaidSyncResult(await window.api.plaid.sync())
+    } finally {
+      setPlaidSyncing(false)
+    }
+  }
+
   const onSavePortalUrl = async (): Promise<void> => {
     setPortalSaving(true)
     try {
@@ -237,6 +299,16 @@ export default function Settings(): React.JSX.Element {
       setCalendarFeedUrl(await window.api.settings.getCalendarFeedUrl())
     } finally {
       setPortalSaving(false)
+    }
+  }
+
+  const onSaveReviewLink = async (): Promise<void> => {
+    setReviewLinkSaving(true)
+    try {
+      await window.api.settings.saveGoogleReviewLink(reviewLink.trim())
+      setReviewLinkSaved(reviewLink.trim())
+    } finally {
+      setReviewLinkSaving(false)
     }
   }
 
@@ -430,8 +502,10 @@ export default function Settings(): React.JSX.Element {
                 Sending (SMTP)
               </h3>
               <p className="mt-1 text-xs text-neutral-500">
-                Needed to reply to or compose emails from this account. Same login as above — just
-                a different server/port for sending.
+                Needed to reply to or compose emails from this account. Same login as above, but
+                often a <em>different hostname</em> than the IMAP server above (e.g. Hostinger uses
+                imap.hostinger.com for receiving but smtp.hostinger.com for sending) — check with
+                your provider rather than assuming they match.
               </p>
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div>
@@ -439,8 +513,8 @@ export default function Settings(): React.JSX.Element {
                   <input
                     value={accountForm.smtpHost}
                     onChange={(e) => setAccountForm({ ...accountForm, smtpHost: e.target.value })}
-                    placeholder={accountForm.host || 'mail.unifiedintegrationpa.com'}
-                    className="w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm text-white outline-none focus:border-primary"
+                    placeholder="smtp.example.com"
+                    className="w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm text-white outline-none placeholder:text-neutral-600 focus:border-primary"
                   />
                 </div>
                 <div>
@@ -468,15 +542,28 @@ export default function Settings(): React.JSX.Element {
             </div>
 
             {testResult && (
-              <p className={`mt-3 text-xs ${testResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
-                {testResult.ok ? 'Connection successful.' : `Failed: ${testResult.error}`}
-              </p>
+              <div className="mt-3 space-y-1 text-xs">
+                <p className={testResult.imap.ok ? 'text-emerald-400' : 'text-red-400'}>
+                  IMAP (receiving):{' '}
+                  {testResult.imap.ok ? 'Connection successful.' : `Failed: ${testResult.imap.error}`}
+                </p>
+                <p className={testResult.smtp.ok ? 'text-emerald-400' : 'text-red-400'}>
+                  SMTP (sending):{' '}
+                  {testResult.smtp.ok ? 'Connection successful.' : `Failed: ${testResult.smtp.error}`}
+                </p>
+              </div>
             )}
 
             <div className="mt-4 flex gap-2">
               <button
                 onClick={onTestAccount}
-                disabled={testing || !accountForm.host || !accountForm.user || !accountForm.password}
+                disabled={
+                  testing ||
+                  !accountForm.host ||
+                  !accountForm.smtpHost ||
+                  !accountForm.user ||
+                  !accountForm.password
+                }
                 className="rounded border border-neutral-700 px-3 py-1.5 text-sm text-white disabled:opacity-40"
               >
                 {testing ? 'Testing…' : 'Test connection'}
@@ -486,6 +573,7 @@ export default function Settings(): React.JSX.Element {
                 disabled={
                   savingAccount ||
                   !accountForm.host ||
+                  !accountForm.smtpHost ||
                   !accountForm.user ||
                   (editingAccountId === 'new' && !accountForm.password)
                 }
@@ -657,9 +745,113 @@ export default function Settings(): React.JSX.Element {
       </section>
 
       <section className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-5">
-        <h2 className="text-sm font-semibold text-white">Estimate signing page</h2>
+        <h2 className="text-sm font-semibold text-white">Plaid (bank accounts)</h2>
         <p className="mt-1 text-xs text-neutral-500">
-          The public web address where clients view and sign estimates you send them. Set this
+          Connect your business bank accounts under Finances → Bank Accounts to pull in
+          transactions automatically. Get a Client ID and Secret from your{' '}
+          <a
+            href="https://dashboard.plaid.com/team/keys"
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary hover:underline"
+          >
+            Plaid dashboard
+          </a>{' '}
+          — Sandbox keys are free and instant; Production requires requesting access from Plaid
+          first.
+        </p>
+
+        {plaidCurrent && (
+          <p className="mt-3 rounded bg-emerald-500/10 px-3 py-2 text-xs text-emerald-400">
+            Connected: {plaidCurrent.environment}
+          </p>
+        )}
+
+        <div className="mt-4 space-y-3">
+          <div className="flex gap-4 text-sm text-neutral-300">
+            <label className="flex items-center gap-1.5">
+              <input
+                type="radio"
+                checked={plaidForm.environment === 'sandbox'}
+                onChange={() => setPlaidForm({ ...plaidForm, environment: 'sandbox' })}
+              />
+              Sandbox (testing only)
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input
+                type="radio"
+                checked={plaidForm.environment === 'production'}
+                onChange={() => setPlaidForm({ ...plaidForm, environment: 'production' })}
+              />
+              Production (real bank accounts)
+            </label>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs text-neutral-400">Client ID</label>
+            <input
+              value={plaidForm.clientId}
+              onChange={(e) => setPlaidForm({ ...plaidForm, clientId: e.target.value })}
+              className="w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm text-white outline-none focus:border-primary"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs text-neutral-400">Secret</label>
+            <input
+              type="password"
+              value={plaidForm.secret}
+              onChange={(e) => setPlaidForm({ ...plaidForm, secret: e.target.value })}
+              className="w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm text-white outline-none focus:border-primary"
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 flex gap-2">
+          <button
+            onClick={onSavePlaid}
+            disabled={plaidSaving || !plaidForm.clientId || !plaidForm.secret}
+            className="rounded bg-primary px-3 py-1.5 text-sm font-semibold text-black disabled:opacity-40"
+          >
+            {plaidSaving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+
+        {plaidCurrent && (
+          <div className="mt-5 border-t border-neutral-800 pt-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+              Sync
+            </h3>
+            <p className="mt-1 text-xs text-neutral-500">
+              Bank accounts also sync automatically every 10 minutes in the background.
+            </p>
+            <button
+              onClick={onSyncPlaid}
+              disabled={plaidSyncing}
+              className="mt-3 rounded border border-neutral-700 px-3 py-1.5 text-sm text-white disabled:opacity-40"
+            >
+              {plaidSyncing ? 'Syncing…' : 'Sync now'}
+            </button>
+            {plaidSyncResult && (
+              <div className="mt-3 text-xs text-neutral-400">
+                {plaidSyncResult.ok ? (
+                  <p>
+                    {plaidSyncResult.itemsSynced} account(s) synced, {plaidSyncResult.transactionsAdded}{' '}
+                    new transaction(s), {plaidSyncResult.transactionsModified} updated.
+                  </p>
+                ) : (
+                  <p className="text-red-400">{plaidSyncResult.error}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-5">
+        <h2 className="text-sm font-semibold text-white">Quote signing page</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          The public web address where clients view and sign quotes you send them. Set this
           once you've deployed the signing page.
         </p>
 
@@ -687,6 +879,36 @@ export default function Settings(): React.JSX.Element {
       </section>
 
       <section className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-5">
+        <h2 className="text-sm font-semibold text-white">Google review link</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          Used in the emails sent from Review Requests. Get this from Google Business Profile
+          Manager (business.google.com) → your profile → "Get more reviews" → Copy link.
+        </p>
+
+        {reviewLinkSaved && (
+          <p className="mt-3 rounded bg-emerald-500/10 px-3 py-2 text-xs text-emerald-400">
+            Connected: {reviewLinkSaved}
+          </p>
+        )}
+
+        <div className="mt-4 flex gap-2">
+          <input
+            value={reviewLink}
+            onChange={(e) => setReviewLink(e.target.value)}
+            placeholder="https://g.page/r/.../review"
+            className="flex-1 rounded border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm text-white outline-none focus:border-primary"
+          />
+          <button
+            onClick={onSaveReviewLink}
+            disabled={reviewLinkSaving || !reviewLink.trim()}
+            className="rounded bg-primary px-3 py-1.5 text-sm font-semibold text-black disabled:opacity-40"
+          >
+            {reviewLinkSaving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-5">
         <h2 className="text-sm font-semibold text-white">Job calendar</h2>
         <p className="mt-1 text-xs text-neutral-500">
           A live calendar feed of every scheduled task — subscribe once from your phone or Mac's
@@ -695,7 +917,7 @@ export default function Settings(): React.JSX.Element {
 
         {!portalUrlSaved && (
           <p className="mt-3 rounded bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
-            Set up the estimate signing page above first — the calendar feed is served from the
+            Set up the quote signing page above first — the calendar feed is served from the
             same address.
           </p>
         )}

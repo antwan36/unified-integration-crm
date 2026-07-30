@@ -102,6 +102,11 @@ export default function SearchPalette({ onClose }: { onClose: () => void }): Rea
     Invoice: 'bg-emerald-500/15 text-emerald-400',
     Estimate: 'bg-amber-500/15 text-amber-400'
   }
+  const KIND_LABELS: Record<ResultItem['kind'], string> = {
+    Contact: 'Contact',
+    Invoice: 'Invoice',
+    Estimate: 'Quote'
+  }
 
   return (
     <div
@@ -116,7 +121,7 @@ export default function SearchPalette({ onClose }: { onClose: () => void }): Rea
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Search contacts, invoices, estimates…"
+          placeholder="Search contacts, invoices, quotes…"
           className="w-full border-b border-neutral-800 bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-neutral-500"
         />
         <div className="max-h-80 overflow-y-auto">
@@ -132,7 +137,7 @@ export default function SearchPalette({ onClose }: { onClose: () => void }): Rea
               <span
                 className={`w-16 shrink-0 rounded px-1.5 py-0.5 text-center text-[10px] font-medium ${KIND_STYLES[item.kind]}`}
               >
-                {item.kind}
+                {KIND_LABELS[item.kind]}
               </span>
               <span className="truncate text-white">{item.label}</span>
               <span className="ml-auto truncate text-xs text-neutral-500">{item.detail}</span>

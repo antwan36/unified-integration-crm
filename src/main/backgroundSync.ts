@@ -3,6 +3,9 @@ import { runImapSyncAll } from './imap/sync'
 import { listEmailAccounts } from './db/emailAccounts'
 import { runSquareSync } from './square/sync'
 import { hasSquareCredentials } from './secrets/square-credentials'
+import { runPlaidSyncAll } from './plaid/sync'
+import { hasPlaidCredentials } from './secrets/plaid-credentials'
+import { countPlaidItems } from './db/plaid'
 
 const SYNC_INTERVAL_MS = 10 * 60 * 1000
 
@@ -49,6 +52,26 @@ export function scheduleBackgroundSync(): void {
           }
         })
         .catch((err) => console.error('Square sync failed:', err))
+    }
+    if ((await hasPlaidCredentials()) && (await countPlaidItems()) > 0) {
+      runPlaidSyncAll()
+        .then((result) => {
+          if (!result.ok) {
+            console.error('Plaid sync failed:', result.error)
+            return
+          }
+          if (result.transactionsAdded > 0) {
+            notify(
+              result.transactionsAdded === 1
+                ? 'New bank transaction'
+                : `${result.transactionsAdded} new bank transactions`,
+              result.transactionsAdded === 1
+                ? 'A new bank transaction came in.'
+                : `${result.transactionsAdded} new bank transactions came in.`
+            )
+          }
+        })
+        .catch((err) => console.error('Plaid sync failed:', err))
     }
   }
   setTimeout(kickOff, 5000)

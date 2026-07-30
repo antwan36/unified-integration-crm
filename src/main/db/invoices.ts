@@ -22,9 +22,11 @@ interface InvoiceRow {
   dueDate: string
   subtotalCents: number
   taxPercent: number
+  shippingCents: number
   totalCents: number
   paidCents: number
   refundedCents: number
+  costCents: number
   status: string
   invoiceNumber: string | null
   publicUrl: string | null
@@ -38,6 +40,7 @@ interface LineItemRow {
   description: string
   quantity: number
   unitPriceCents: number
+  link: string | null
 }
 
 function toInvoice(row: InvoiceRow): Invoice {
@@ -50,9 +53,11 @@ function toInvoice(row: InvoiceRow): Invoice {
     dueDate: row.dueDate,
     subtotalCents: row.subtotalCents,
     taxPercent: row.taxPercent,
+    shippingCents: row.shippingCents,
     totalCents: row.totalCents,
     paidCents: row.paidCents,
     refundedCents: row.refundedCents,
+    costCents: row.costCents,
     status: row.status as InvoiceStatus,
     invoiceNumber: row.invoiceNumber,
     publicUrl: row.publicUrl,
@@ -67,7 +72,8 @@ function toLineItem(row: LineItemRow): InvoiceLineItem {
     invoiceId: row.invoiceId,
     description: row.description,
     quantity: row.quantity,
-    unitPriceCents: row.unitPriceCents
+    unitPriceCents: row.unitPriceCents,
+    link: row.link
   }
 }
 
@@ -93,7 +99,7 @@ export async function getInvoice(id: string): Promise<InvoiceWithLineItems | nul
   const row = result.rows[0]
   if (!row) return null
   const lineItems = await getDb().query<LineItemRow>(
-    'SELECT * FROM invoice_line_items WHERE "invoiceId" = $1',
+    'SELECT * FROM invoice_line_items WHERE "invoiceId" = $1 ORDER BY "sortOrder" ASC',
     [id]
   )
   return { ...toInvoice(row), lineItems: lineItems.rows.map(toLineItem) }
@@ -135,11 +141,19 @@ export async function getInvoiceAnalytics(): Promise<InvoiceAnalytics> {
   const db = getDb()
 
   const [totalsRes, byStatusRes, monthlyRes] = await Promise.all([
-    db.query<{ totalInvoicedCents: string; totalInvoicedCount: string; totalCollectedCents: string }>(
+    db.query<{
+      totalInvoicedCents: string
+      totalInvoicedCount: string
+      totalCollectedCents: string
+      totalCostCents: string
+      costedInvoiceCount: string
+    }>(
       `SELECT
         COALESCE(SUM("totalCents") FILTER (WHERE status != ALL($1)), 0) AS "totalInvoicedCents",
         COUNT(*) FILTER (WHERE status != ALL($1)) AS "totalInvoicedCount",
-        COALESCE(SUM("paidCents"), 0) AS "totalCollectedCents"
+        COALESCE(SUM("paidCents"), 0) AS "totalCollectedCents",
+        COALESCE(SUM("costCents") FILTER (WHERE status != ALL($1)), 0) AS "totalCostCents",
+        COUNT(*) FILTER (WHERE status != ALL($1) AND "costCents" > 0) AS "costedInvoiceCount"
        FROM invoices`,
       [NON_BILLED_STATUSES]
     ),
@@ -161,6 +175,7 @@ export async function getInvoiceAnalytics(): Promise<InvoiceAnalytics> {
   const totals = totalsRes.rows[0]
   const totalInvoicedCents = Number(totals.totalInvoicedCents)
   const totalInvoicedCount = Number(totals.totalInvoicedCount)
+  const totalCostCents = Number(totals.totalCostCents)
 
   const monthlyByKey = new Map(
     monthlyRes.rows.map((r) => [r.month, { invoicedCents: Number(r.invoicedCents), count: Number(r.count) }])
@@ -181,6 +196,9 @@ export async function getInvoiceAnalytics(): Promise<InvoiceAnalytics> {
     totalInvoicedCount,
     totalCollectedCents: Number(totals.totalCollectedCents),
     averageInvoiceCents: totalInvoicedCount > 0 ? Math.round(totalInvoicedCents / totalInvoicedCount) : 0,
+    totalCostCents,
+    totalProfitCents: totalInvoicedCents - totalCostCents,
+    costedInvoiceCount: Number(totals.costedInvoiceCount),
     byStatus: byStatusRes.rows
       .map((r) => ({
         status: r.status as InvoiceStatus,
@@ -200,6 +218,7 @@ export interface CreateInvoiceRecordInput {
   dueDate: string
   subtotalCents: number
   taxPercent: number
+  shippingCents: number
   totalCents: number
   status: InvoiceStatus
   invoiceNumber: string | null
@@ -216,8 +235,8 @@ export async function createInvoiceRecord(
     await client.query('BEGIN')
     await client.query(
       `INSERT INTO invoices
-        (id, "contactId", "squareInvoiceId", "squareOrderId", title, "dueDate", "subtotalCents", "taxPercent", "totalCents", status, "invoiceNumber", "publicUrl")
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        (id, "contactId", "squareInvoiceId", "squareOrderId", title, "dueDate", "subtotalCents", "taxPercent", "shippingCents", "totalCents", status, "invoiceNumber", "publicUrl")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         id,
         input.contactId,
@@ -227,17 +246,19 @@ export async function createInvoiceRecord(
         input.dueDate,
         input.subtotalCents,
         input.taxPercent,
+        input.shippingCents,
         input.totalCents,
         input.status,
         input.invoiceNumber,
         input.publicUrl
       ]
     )
+    let sortOrder = 0
     for (const item of input.lineItems) {
       await client.query(
-        `INSERT INTO invoice_line_items (id, "invoiceId", description, quantity, "unitPriceCents")
-         VALUES ($1, $2, $3, $4, $5)`,
-        [newId(), id, item.description, item.quantity, item.unitPriceCents]
+        `INSERT INTO invoice_line_items (id, "invoiceId", description, quantity, "unitPriceCents", "sortOrder", "link")
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [newId(), id, item.description, item.quantity, item.unitPriceCents, sortOrder++, item.link ?? null]
       )
     }
     await client.query('COMMIT')
@@ -259,6 +280,7 @@ export interface UpsertInvoiceFromSquareInput {
   dueDate: string
   subtotalCents: number
   taxPercent: number
+  shippingCents: number
   totalCents: number
   paidCents: number
   refundedCents: number
@@ -274,7 +296,7 @@ export interface UpsertInvoiceFromSquareInput {
  */
 export async function upsertInvoiceFromSquare(
   input: UpsertInvoiceFromSquareInput
-): Promise<{ inserted: boolean; becamePaid: boolean }> {
+): Promise<{ id: string; inserted: boolean; becamePaid: boolean }> {
   const client = await getDb().connect()
   try {
     await client.query('BEGIN')
@@ -285,8 +307,8 @@ export async function upsertInvoiceFromSquare(
     const previousStatus = prev.rows[0]?.status ?? null
     const result = await client.query<{ id: string; inserted: boolean }>(
       `INSERT INTO invoices
-        (id, "contactId", "squareInvoiceId", "squareOrderId", title, "dueDate", "subtotalCents", "taxPercent", "totalCents", "paidCents", "refundedCents", status, "invoiceNumber", "publicUrl")
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        (id, "contactId", "squareInvoiceId", "squareOrderId", title, "dueDate", "subtotalCents", "taxPercent", "shippingCents", "totalCents", "paidCents", "refundedCents", status, "invoiceNumber", "publicUrl")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        ON CONFLICT ("squareInvoiceId") DO UPDATE SET
          status = EXCLUDED.status,
          "paidCents" = EXCLUDED."paidCents",
@@ -304,6 +326,7 @@ export async function upsertInvoiceFromSquare(
         input.dueDate,
         input.subtotalCents,
         input.taxPercent,
+        input.shippingCents,
         input.totalCents,
         input.paidCents,
         input.refundedCents,
@@ -314,17 +337,18 @@ export async function upsertInvoiceFromSquare(
     )
     const { id, inserted } = result.rows[0]
     if (inserted) {
+      let sortOrder = 0
       for (const item of input.lineItems) {
         await client.query(
-          `INSERT INTO invoice_line_items (id, "invoiceId", description, quantity, "unitPriceCents")
-           VALUES ($1, $2, $3, $4, $5)`,
-          [newId(), id, item.description, item.quantity, item.unitPriceCents]
+          `INSERT INTO invoice_line_items (id, "invoiceId", description, quantity, "unitPriceCents", "sortOrder", "link")
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [newId(), id, item.description, item.quantity, item.unitPriceCents, sortOrder++, item.link ?? null]
         )
       }
     }
     await client.query('COMMIT')
     const becamePaid = input.status === 'PAID' && previousStatus !== 'PAID'
-    return { inserted, becamePaid }
+    return { id, inserted, becamePaid }
   } catch (err) {
     await client.query('ROLLBACK')
     throw err
@@ -366,4 +390,17 @@ export async function updateInvoiceStatus(
      WHERE id = $6`,
     [status, invoiceNumber, publicUrl, paidCents, refundedCents, id]
   )
+}
+
+/**
+ * Internal-only cost entry for the profit view — never touches Square, so it's
+ * editable regardless of invoice status (you often don't know final cost until
+ * after the job, well after the invoice was sent or paid).
+ */
+export async function updateInvoiceCost(id: string, costCents: number): Promise<Invoice | null> {
+  const result = await getDb().query<InvoiceRow>(
+    `UPDATE invoices SET "costCents" = $1, "updatedAt" = now() WHERE id = $2 RETURNING *`,
+    [costCents, id]
+  )
+  return result.rows[0] ? toInvoice(result.rows[0]) : null
 }

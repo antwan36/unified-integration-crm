@@ -16,13 +16,30 @@ export default function InvoiceDetail(): React.JSX.Element {
   const [refreshing, setRefreshing] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [costInput, setCostInput] = useState('')
+  const [savingCost, setSavingCost] = useState(false)
 
   const load = async (): Promise<void> => {
     if (!id) return
     const inv = await window.api.invoices.get(id)
     setInvoice(inv)
+    setCostInput(inv?.costCents ? (inv.costCents / 100).toFixed(2) : '')
     if (inv) {
       setContact(await window.api.contacts.get(inv.contactId))
+    }
+  }
+
+  const onSaveCost = async (): Promise<void> => {
+    if (!id) return
+    setSavingCost(true)
+    try {
+      const costCents = Math.round((Number(costInput) || 0) * 100)
+      const updated = await window.api.invoices.updateCost(id, costCents)
+      if (updated) setInvoice((prev) => (prev ? { ...prev, costCents: updated.costCents } : prev))
+    } catch (err) {
+      setError(cleanIpcError(err))
+    } finally {
+      setSavingCost(false)
     }
   }
 
@@ -84,10 +101,12 @@ export default function InvoiceDetail(): React.JSX.Element {
         copyFrom: {
           title: invoice.title,
           taxPercent: invoice.taxPercent,
+          shippingCents: invoice.shippingCents,
           lineItems: invoice.lineItems.map((li) => ({
             description: li.description,
             quantity: li.quantity,
-            unitPriceCents: li.unitPriceCents
+            unitPriceCents: li.unitPriceCents,
+            link: li.link
           }))
         }
       }
@@ -134,7 +153,19 @@ export default function InvoiceDetail(): React.JSX.Element {
           <tbody className="divide-y divide-neutral-800">
             {invoice.lineItems.map((item) => (
               <tr key={item.id}>
-                <td className="px-4 py-3 text-white">{item.description}</td>
+                <td className="px-4 py-3 text-white">
+                  {item.description}
+                  {item.link && (
+                    <a
+                      href={item.link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="no-print ml-2 text-xs text-neutral-500 hover:text-primary"
+                    >
+                      link ↗
+                    </a>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-neutral-400">{item.quantity}</td>
                 <td className="px-4 py-3 text-neutral-400">{formatCents(item.unitPriceCents)}</td>
                 <td className="px-4 py-3 text-right text-neutral-400">
@@ -152,7 +183,13 @@ export default function InvoiceDetail(): React.JSX.Element {
           {invoice.taxPercent > 0 && (
             <div className="flex justify-between text-neutral-400">
               <span>Tax ({invoice.taxPercent}%)</span>
-              <span>{formatCents(invoice.totalCents - invoice.subtotalCents)}</span>
+              <span>{formatCents(Math.round(invoice.subtotalCents * (invoice.taxPercent / 100)))}</span>
+            </div>
+          )}
+          {invoice.shippingCents > 0 && (
+            <div className="flex justify-between text-neutral-400">
+              <span>Shipping</span>
+              <span>{formatCents(invoice.shippingCents)}</span>
             </div>
           )}
           <div className="flex justify-between font-semibold text-white">
@@ -177,6 +214,51 @@ export default function InvoiceDetail(): React.JSX.Element {
               <span>{formatCents(invoice.refundedCents)}</span>
             </div>
           )}
+        </div>
+      </div>
+
+      <div className="no-print mt-6 rounded-lg border border-neutral-800 bg-neutral-900/50 p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-white">Profit</h2>
+          <span className="text-[10px] uppercase tracking-wide text-neutral-500">
+            Internal only — never shown to the client
+          </span>
+        </div>
+        <div className="mt-3 flex items-end gap-3">
+          <div>
+            <label className="mb-1 block text-xs text-neutral-400">
+              Cost (materials, labor, etc.)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={costInput}
+              onChange={(e) => setCostInput(e.target.value)}
+              placeholder="0.00"
+              className="w-28 rounded border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm text-white outline-none focus:border-primary"
+            />
+          </div>
+          <button
+            onClick={onSaveCost}
+            disabled={savingCost}
+            className="rounded border border-neutral-700 px-3 py-1.5 text-sm text-white hover:bg-neutral-800 disabled:opacity-40"
+          >
+            {savingCost ? 'Saving…' : 'Save'}
+          </button>
+          <div className="ml-auto space-y-0.5 text-right text-sm">
+            <div className="text-neutral-400">
+              Profit:{' '}
+              <span className={invoice.totalCents - invoice.costCents >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                {formatCents(invoice.totalCents - invoice.costCents)}
+              </span>
+            </div>
+            {invoice.totalCents > 0 && (
+              <div className="text-xs text-neutral-500">
+                Margin: {(((invoice.totalCents - invoice.costCents) / invoice.totalCents) * 100).toFixed(1)}%
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

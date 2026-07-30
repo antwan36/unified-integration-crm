@@ -127,7 +127,7 @@ export default function Catalog(): React.JSX.Element {
           <h1 className="text-xl font-semibold text-white">Catalog</h1>
           <p className="mt-1 text-xs text-neutral-500">
             Items and prices you install often — pick them off this list when building an invoice
-            or estimate instead of typing everything out each time.
+            or quote instead of typing everything out each time.
           </p>
         </div>
         <button

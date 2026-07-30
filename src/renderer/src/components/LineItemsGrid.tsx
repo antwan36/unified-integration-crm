@@ -5,9 +5,6 @@ export interface LineItemDraft {
   description: string
   quantity: string
   unitPrice: string
-  fetching: boolean
-  fetchError: string | null
-  fetchedLink: string | null
 }
 
 export function emptyLineItem(): LineItemDraft {
@@ -15,19 +12,17 @@ export function emptyLineItem(): LineItemDraft {
     link: '',
     description: '',
     quantity: '1',
-    unitPrice: '',
-    fetching: false,
-    fetchError: null,
-    fetchedLink: null
+    unitPrice: ''
   }
 }
 
 export function lineItemDraftFrom(
   description: string,
   unitPriceCents: number,
-  quantity = '1'
+  quantity = '1',
+  link = ''
 ): LineItemDraft {
-  return { ...emptyLineItem(), description, quantity, unitPrice: (unitPriceCents / 100).toFixed(2) }
+  return { ...emptyLineItem(), description, quantity, unitPrice: (unitPriceCents / 100).toFixed(2), link }
 }
 
 interface Props {
@@ -66,65 +61,22 @@ export default function LineItemsGrid({
 
   const removeItem = (index: number): void => onChange(items.filter((_, i) => i !== index))
 
-  const runLinkFetch = async (index: number, url: string): Promise<void> => {
-    updateItem(index, { link: url, fetching: true, fetchError: null })
-    const result = await window.api.catalog.scrapeUrl(url)
-    if (!result.ok || !result.product || (!result.product.name && result.product.priceCents === null)) {
-      updateItem(index, { fetching: false, fetchError: result.error ?? "Couldn't read that page." })
-      return
-    }
-    const { product } = result
-    onChange(
-      items.map((item, i) =>
-        i === index
-          ? {
-              ...item,
-              fetching: false,
-              fetchError: null,
-              fetchedLink: url,
-              description: product.name ?? item.description,
-              unitPrice:
-                product.priceCents !== null ? (product.priceCents / 100).toFixed(2) : item.unitPrice
-            }
-          : item
-      )
-    )
-  }
-
-  const onLinkPaste = (index: number, e: React.ClipboardEvent<HTMLInputElement>): void => {
-    const pasted = e.clipboardData.getData('text').trim()
-    if (!pasted || !/^https?:\/\//i.test(pasted)) return
-    e.preventDefault()
-    runLinkFetch(index, pasted)
-  }
-
-  const onLinkDrop = (index: number, e: React.DragEvent<HTMLInputElement>): void => {
-    e.preventDefault()
-    const dropped = (
-      e.dataTransfer.getData('text/uri-list') ||
-      e.dataTransfer.getData('text/plain') ||
-      e.dataTransfer.getData('text')
-    ).trim()
-    if (!dropped || !/^https?:\/\//i.test(dropped)) return
-    runLinkFetch(index, dropped)
-  }
-
-  const onLinkBlur = (index: number): void => {
-    const row = items[index]
-    const url = row.link.trim()
-    if (!url || url === row.fetchedLink || row.fetching) return
-    runLinkFetch(index, url)
+  const moveItem = (index: number, direction: -1 | 1): void => {
+    const target = index + direction
+    if (target < 0 || target >= items.length) return
+    const next = [...items]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    onChange(next)
   }
 
   return (
     <div>
-      <label className="mb-2 block text-xs text-neutral-400">
-        Line items — paste or drop a product link into a row to auto-fill it
-      </label>
+      <label className="mb-2 block text-xs text-neutral-400">Line items</label>
       <div className="overflow-x-auto rounded-lg border border-neutral-800">
         <table className="w-full text-sm">
           <thead className="bg-neutral-900 text-left text-xs text-neutral-500">
             <tr>
+              {!disabled && <th className="w-8" />}
               <th className="px-2 py-2 font-medium">Link</th>
               <th className="px-2 py-2 font-medium">Item</th>
               <th className="px-2 py-2 font-medium">Qty</th>
@@ -136,32 +88,38 @@ export default function LineItemsGrid({
           <tbody className="divide-y divide-neutral-800">
             {items.map((item, index) => (
               <tr key={index} className="bg-neutral-950">
+                {!disabled && (
+                  <td className="border-r border-neutral-800 px-1 text-center align-middle">
+                    <div className="flex flex-col">
+                      <button
+                        type="button"
+                        onClick={() => moveItem(index, -1)}
+                        disabled={index === 0}
+                        title="Move up"
+                        className="text-neutral-500 hover:text-white disabled:opacity-20"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveItem(index, 1)}
+                        disabled={index === items.length - 1}
+                        title="Move down"
+                        className="text-neutral-500 hover:text-white disabled:opacity-20"
+                      >
+                        ▼
+                      </button>
+                    </div>
+                  </td>
+                )}
                 <td className="border-r border-neutral-800 align-top">
-                  <div className="flex items-center gap-1.5 px-2 py-2">
-                    <input
-                      value={item.link}
-                      onChange={(e) => updateItem(index, { link: e.target.value })}
-                      onPaste={(e) => onLinkPaste(index, e)}
-                      onDrop={(e) => onLinkDrop(index, e)}
-                      onDragOver={(e) => e.preventDefault()}
-                      onBlur={() => onLinkBlur(index)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          onLinkBlur(index)
-                        }
-                      }}
-                      disabled={disabled || item.fetching}
-                      placeholder="Paste or drop a link…"
-                      className="w-36 bg-transparent text-xs text-neutral-300 outline-none placeholder:text-neutral-600 disabled:opacity-50"
-                    />
-                    {item.fetching && (
-                      <span className="shrink-0 text-[10px] text-primary">Fetching…</span>
-                    )}
-                  </div>
-                  {item.fetchError && (
-                    <div className="px-2 pb-1.5 text-[10px] text-red-400">{item.fetchError}</div>
-                  )}
+                  <input
+                    value={item.link}
+                    onChange={(e) => updateItem(index, { link: e.target.value })}
+                    disabled={disabled}
+                    placeholder="Product link (optional)…"
+                    className="w-36 bg-transparent px-2 py-2 text-xs text-neutral-300 outline-none placeholder:text-neutral-600 disabled:opacity-50"
+                  />
                 </td>
                 <td className="border-r border-neutral-800">
                   <input

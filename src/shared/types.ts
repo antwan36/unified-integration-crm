@@ -127,6 +127,14 @@ export interface TestEmailAccountInput {
   password: string
 }
 
+export interface TestSmtpAccountInput {
+  smtpHost: string
+  smtpPort: number
+  smtpSecure: boolean
+  user: string
+  password: string
+}
+
 export interface SendEmailInput {
   contactId: string
   emailAccountId: string
@@ -141,6 +149,7 @@ export interface ListContactsFilter {
   search?: string
   status?: ContactStatus
   jobType?: string
+  source?: string
 }
 
 export interface CreateContactInput {
@@ -236,6 +245,7 @@ export interface InvoiceLineItem {
   description: string
   quantity: number
   unitPriceCents: number
+  link: string | null
 }
 
 export interface Invoice {
@@ -247,9 +257,11 @@ export interface Invoice {
   dueDate: string
   subtotalCents: number
   taxPercent: number
+  shippingCents: number
   totalCents: number
   paidCents: number
   refundedCents: number
+  costCents: number
   status: InvoiceStatus
   invoiceNumber: string | null
   publicUrl: string | null
@@ -263,6 +275,25 @@ export interface InvoiceWithLineItems extends Invoice {
 
 export interface InvoiceWithContactName extends Invoice {
   contactName: string
+}
+
+export type ReviewRequestStatus = 'queued' | 'sent' | 'dismissed'
+
+export interface ReviewRequest {
+  id: string
+  contactId: string
+  invoiceId: string
+  status: ReviewRequestStatus
+  queuedAt: string
+  sentAt: string | null
+  dismissedAt: string | null
+  createdAt: string
+}
+
+export interface ReviewRequestWithDetails extends ReviewRequest {
+  contactName: string
+  contactEmail: string | null
+  invoiceTitle: string
 }
 
 export interface InvoiceStats {
@@ -293,6 +324,9 @@ export interface InvoiceAnalytics {
   averageInvoiceCents: number
   byStatus: InvoiceStatusBreakdown[]
   monthly: InvoiceMonthlyPoint[]
+  totalCostCents: number
+  totalProfitCents: number
+  costedInvoiceCount: number
 }
 
 export interface SquareSyncResult {
@@ -335,6 +369,7 @@ export interface CreateInvoiceLineItemInput {
   description: string
   quantity: number
   unitPriceCents: number
+  link?: string | null
 }
 
 export interface CreateInvoiceInput {
@@ -342,6 +377,7 @@ export interface CreateInvoiceInput {
   title: string
   dueDate: string
   taxPercent: number
+  shippingCents: number
   lineItems: CreateInvoiceLineItemInput[]
   draft?: boolean
 }
@@ -380,6 +416,7 @@ export interface EstimateItem {
   description: string
   quantity: number
   unitPriceCents: number
+  link: string | null
 }
 
 export interface Estimate {
@@ -388,6 +425,7 @@ export interface Estimate {
   title: string
   status: EstimateStatus
   taxPercent: number
+  shippingCents: number
   signToken: string | null
   signerName: string | null
   signedAt: string | null
@@ -443,18 +481,21 @@ export interface CreateEstimateItemInput {
   description: string
   quantity: number
   unitPriceCents: number
+  link?: string | null
 }
 
 export interface CreateEstimateInput {
   contactId: string
   title: string
   taxPercent: number
+  shippingCents: number
   items: CreateEstimateItemInput[]
 }
 
 export interface UpdateEstimateInput {
   title: string
   taxPercent: number
+  shippingCents: number
   items: CreateEstimateItemInput[]
 }
 
@@ -464,4 +505,250 @@ export interface UpdateCheckResult {
   latestVersion: string | null
   downloadUrl: string | null
   releaseNotes: string | null
+}
+
+// --- Inventory ---
+
+export const INVENTORY_TRANSACTION_TYPES = ['purchase', 'use', 'adjustment', 'return'] as const
+export type InventoryTransactionType = (typeof INVENTORY_TRANSACTION_TYPES)[number]
+
+export interface InventoryItem {
+  id: string
+  name: string
+  sku: string | null
+  description: string | null
+  category: string | null
+  unitCostCents: number
+  quantityOnHand: number
+  reorderThreshold: number | null
+  location: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateInventoryItemInput {
+  name: string
+  sku?: string | null
+  description?: string | null
+  category?: string | null
+  unitCostCents: number
+  quantityOnHand?: number
+  reorderThreshold?: number | null
+  location?: string | null
+}
+
+export interface UpdateInventoryItemInput {
+  name: string
+  sku?: string | null
+  description?: string | null
+  category?: string | null
+  unitCostCents: number
+  reorderThreshold?: number | null
+  location?: string | null
+}
+
+export interface InventoryTransaction {
+  id: string
+  itemId: string
+  type: InventoryTransactionType
+  quantityDelta: number
+  unitCostCents: number | null
+  contactId: string | null
+  notes: string | null
+  date: string
+  createdAt: string
+}
+
+export interface CreateInventoryTransactionInput {
+  itemId: string
+  type: InventoryTransactionType
+  quantityDelta: number
+  unitCostCents?: number | null
+  contactId?: string | null
+  notes?: string | null
+  date: string
+}
+
+// --- Payroll ---
+
+export type PayeeType = 'employee' | 'contractor'
+export const PAYEE_TYPES: PayeeType[] = ['employee', 'contractor']
+
+export type PayeeRateType = 'hourly' | 'salary' | 'per_job'
+export const PAYEE_RATE_TYPES: PayeeRateType[] = ['hourly', 'salary', 'per_job']
+
+export type PayrollMethod = 'check' | 'ach' | 'cash' | 'other'
+export const PAYROLL_METHODS: PayrollMethod[] = ['check', 'ach', 'cash', 'other']
+
+export interface Payee {
+  id: string
+  name: string
+  type: PayeeType
+  email: string | null
+  phone: string | null
+  hasTaxId: boolean
+  rateType: PayeeRateType
+  defaultRateCents: number | null
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreatePayeeInput {
+  name: string
+  type: PayeeType
+  email?: string | null
+  phone?: string | null
+  taxId?: string | null
+  rateType: PayeeRateType
+  defaultRateCents?: number | null
+}
+
+export interface UpdatePayeeInput {
+  name: string
+  type: PayeeType
+  email?: string | null
+  phone?: string | null
+  taxId?: string | null
+  rateType: PayeeRateType
+  defaultRateCents?: number | null
+  active: boolean
+}
+
+export interface PayrollPayment {
+  id: string
+  payeeId: string
+  amountCents: number
+  date: string
+  method: PayrollMethod
+  contactId: string | null
+  memo: string | null
+  createdAt: string
+}
+
+export interface PayrollPaymentWithPayeeName extends PayrollPayment {
+  payeeName: string
+}
+
+export interface CreatePayrollPaymentInput {
+  payeeId: string
+  amountCents: number
+  date: string
+  method: PayrollMethod
+  contactId?: string | null
+  memo?: string | null
+}
+
+export interface Payroll1099Line {
+  payeeId: string
+  payeeName: string
+  totalCents: number
+  taxId: string | null
+}
+
+export interface Payroll1099Summary {
+  year: number
+  lines: Payroll1099Line[]
+}
+
+// --- Bank sync (Plaid) ---
+
+export type PlaidEnvironment = 'sandbox' | 'production'
+
+export interface PlaidCredentials {
+  clientId: string
+  secret: string
+  environment: PlaidEnvironment
+}
+
+export interface PlaidSettings {
+  environment: PlaidEnvironment
+  hasCredentials: boolean
+}
+
+export interface PlaidLinkTokenResult {
+  ok: boolean
+  error?: string
+  linkToken?: string
+}
+
+export interface PlaidExchangeResult {
+  ok: boolean
+  error?: string
+}
+
+export type PlaidItemStatus = 'active' | 'reauth_required' | 'error'
+
+export interface PlaidItemSummary {
+  id: string
+  institutionName: string
+  status: PlaidItemStatus
+  createdAt: string
+}
+
+export interface BankAccount {
+  id: string
+  plaidItemId: string
+  institutionName: string
+  name: string
+  mask: string | null
+  type: string | null
+  subtype: string | null
+  currentBalanceCents: number | null
+  availableBalanceCents: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+export const EXPENSE_CATEGORIES = [
+  'materials',
+  'fuel_vehicle',
+  'tools_equipment',
+  'software_subscriptions',
+  'payroll',
+  'meals',
+  'office',
+  'insurance',
+  'income',
+  'other'
+] as const
+export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number]
+
+export interface BankTransaction {
+  id: string
+  bankAccountId: string
+  amountCents: number
+  date: string
+  merchantName: string | null
+  plaidCategory: string | null
+  userCategory: ExpenseCategory | null
+  contactId: string | null
+  pending: boolean
+  notes: string | null
+  createdAt: string
+}
+
+export interface BankTransactionWithAccount extends BankTransaction {
+  accountName: string
+  institutionName: string
+}
+
+export interface UpdateBankTransactionInput {
+  userCategory?: ExpenseCategory | null
+  contactId?: string | null
+  notes?: string | null
+}
+
+export interface PlaidSyncResult {
+  ok: boolean
+  error?: string
+  itemsSynced: number
+  transactionsAdded: number
+  transactionsModified: number
+}
+
+export interface FinancesSummaryPoint {
+  month: string
+  incomeCents: number
+  expenseCents: number
 }

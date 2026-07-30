@@ -92,18 +92,33 @@ async function createOrder(
         ]
       : undefined
 
+  const serviceCharges =
+    input.shippingCents > 0
+      ? [
+          {
+            uid: 'shipping',
+            name: 'Shipping',
+            amount_money: { amount: input.shippingCents, currency: 'USD' },
+            calculation_phase: 'TOTAL_PHASE',
+            taxable: false
+          }
+        ]
+      : undefined
+
   const { order } = await squareRequest<{ order: SquareOrder }>(creds, 'POST', '/v2/orders', {
     idempotency_key: randomUUID(),
     order: {
       location_id: creds.locationId,
       customer_id: customerId,
       line_items: lineItems,
-      taxes
+      taxes,
+      service_charges: serviceCharges
     }
   })
 
   const totalCents =
-    order.total_money?.amount ?? Math.round(subtotalCents * (1 + input.taxPercent / 100))
+    order.total_money?.amount ??
+    Math.round(subtotalCents * (1 + input.taxPercent / 100)) + input.shippingCents
 
   return { orderId: order.id, subtotalCents, totalCents }
 }
@@ -200,6 +215,7 @@ export async function createAndSendInvoice(
     dueDate: input.dueDate,
     subtotalCents,
     taxPercent: input.taxPercent,
+    shippingCents: input.shippingCents,
     totalCents,
     status: squareInvoice.status as InvoiceStatus,
     invoiceNumber: squareInvoice.invoice_number ?? null,

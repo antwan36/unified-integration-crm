@@ -18,6 +18,7 @@ interface EstimateRow {
   title: string
   status: string
   taxPercent: number
+  shippingCents: number
   signToken: string | null
   signerName: string | null
   signedAt: Date | null
@@ -33,6 +34,7 @@ interface EstimateItemRow {
   description: string
   quantity: number
   unitPriceCents: number
+  link: string | null
 }
 
 function toEstimate(row: EstimateRow): Estimate {
@@ -42,6 +44,7 @@ function toEstimate(row: EstimateRow): Estimate {
     title: row.title,
     status: row.status as EstimateStatus,
     taxPercent: row.taxPercent,
+    shippingCents: row.shippingCents,
     signToken: row.signToken,
     signerName: row.signerName,
     signedAt: row.signedAt ? row.signedAt.toISOString() : null,
@@ -58,22 +61,23 @@ function toItem(row: EstimateItemRow): EstimateItem {
     estimateId: row.estimateId,
     description: row.description,
     quantity: row.quantity,
-    unitPriceCents: row.unitPriceCents
+    unitPriceCents: row.unitPriceCents,
+    link: row.link
   }
 }
 
 async function replaceItems(
   client: PoolClient,
   estimateId: string,
-  items: { description: string; quantity: number; unitPriceCents: number }[]
+  items: { description: string; quantity: number; unitPriceCents: number; link?: string | null }[]
 ): Promise<void> {
   await client.query('DELETE FROM estimate_items WHERE "estimateId" = $1', [estimateId])
   let sortOrder = 0
   for (const item of items) {
     await client.query(
-      `INSERT INTO estimate_items (id, "estimateId", description, quantity, "unitPriceCents", "sortOrder")
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [newId(), estimateId, item.description, item.quantity, item.unitPriceCents, sortOrder++]
+      `INSERT INTO estimate_items (id, "estimateId", description, quantity, "unitPriceCents", "sortOrder", "link")
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [newId(), estimateId, item.description, item.quantity, item.unitPriceCents, sortOrder++, item.link ?? null]
     )
   }
 }
@@ -84,9 +88,9 @@ export async function createEstimate(input: CreateEstimateInput): Promise<Estima
   try {
     await client.query('BEGIN')
     await client.query(
-      `INSERT INTO estimates (id, "contactId", title, "taxPercent")
-       VALUES ($1, $2, $3, $4)`,
-      [id, input.contactId, input.title, input.taxPercent]
+      `INSERT INTO estimates (id, "contactId", title, "taxPercent", "shippingCents")
+       VALUES ($1, $2, $3, $4, $5)`,
+      [id, input.contactId, input.title, input.taxPercent, input.shippingCents]
     )
     await replaceItems(client, id, input.items)
     await client.query('COMMIT')
@@ -131,7 +135,7 @@ export async function listAllEstimates(): Promise<EstimateWithContactName[]> {
     return {
       ...toEstimate(row),
       contactName: row.contactName,
-      totalCents: Math.round(subtotalCents * (1 + row.taxPercent / 100))
+      totalCents: Math.round(subtotalCents * (1 + row.taxPercent / 100)) + row.shippingCents
     }
   })
 }
@@ -147,8 +151,8 @@ export async function updateEstimateDraft(
   try {
     await client.query('BEGIN')
     await client.query(
-      `UPDATE estimates SET title = $1, "taxPercent" = $2, "updatedAt" = now() WHERE id = $3`,
-      [input.title, input.taxPercent, id]
+      `UPDATE estimates SET title = $1, "taxPercent" = $2, "shippingCents" = $3, "updatedAt" = now() WHERE id = $4`,
+      [input.title, input.taxPercent, input.shippingCents, id]
     )
     await replaceItems(client, id, input.items)
     await client.query('COMMIT')
@@ -161,13 +165,28 @@ export async function updateEstimateDraft(
   return getEstimate(id)
 }
 
-export async function sendEstimate(id: string): Promise<Estimate | null> {
+/**
+ * Generates (or reuses) the signing token without marking the estimate as sent —
+ * the token is needed up front to build the signing link that goes in the email,
+ * but status should only flip to 'sent' once that email has actually gone out.
+ */
+export async function ensureSignToken(id: string): Promise<string | null> {
   const token = randomBytes(24).toString('hex')
-  const result = await getDb().query<EstimateRow>(
-    `UPDATE estimates SET status = 'sent', "signToken" = COALESCE("signToken", $1), "sentAt" = now(), "updatedAt" = now()
+  const result = await getDb().query<{ signToken: string }>(
+    `UPDATE estimates SET "signToken" = COALESCE("signToken", $1), "updatedAt" = now()
      WHERE id = $2
-     RETURNING *`,
+     RETURNING "signToken"`,
     [token, id]
+  )
+  return result.rows[0]?.signToken ?? null
+}
+
+export async function markEstimateSent(id: string): Promise<Estimate | null> {
+  const result = await getDb().query<EstimateRow>(
+    `UPDATE estimates SET status = 'sent', "sentAt" = now(), "updatedAt" = now()
+     WHERE id = $1
+     RETURNING *`,
+    [id]
   )
   return result.rows[0] ? toEstimate(result.rows[0]) : null
 }

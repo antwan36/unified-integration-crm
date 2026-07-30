@@ -153,6 +153,42 @@ export default function Invoices(): React.JSX.Element {
             <InvoiceRevenueChart data={analytics.monthly} />
           </div>
 
+          <div className="mt-5 border-t border-neutral-800 pt-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                Profit — internal only
+              </h3>
+              {analytics.totalInvoicedCount > 0 && (
+                <span className="text-xs text-neutral-600">
+                  Cost entered on {analytics.costedInvoiceCount} of {analytics.totalInvoicedCount}
+                </span>
+              )}
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-4">
+              <div>
+                <div className="text-xl font-bold text-white">{formatCents(analytics.totalInvoicedCents)}</div>
+                <div className="mt-1 text-xs text-neutral-500">Revenue</div>
+              </div>
+              <div>
+                <div className="text-xl font-bold text-white">{formatCents(analytics.totalCostCents)}</div>
+                <div className="mt-1 text-xs text-neutral-500">Cost</div>
+              </div>
+              <div>
+                <div
+                  className={`text-xl font-bold ${analytics.totalProfitCents >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
+                >
+                  {formatCents(analytics.totalProfitCents)}
+                </div>
+                <div className="mt-1 text-xs text-neutral-500">
+                  Profit
+                  {analytics.totalInvoicedCents > 0
+                    ? ` · ${((analytics.totalProfitCents / analytics.totalInvoicedCents) * 100).toFixed(1)}% margin`
+                    : ''}
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="mt-5">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">
               By status

@@ -126,19 +126,13 @@ async function runImapSyncForAccount(creds: EmailAccountCredentials): Promise<Sy
 
         if (!fromAddress) continue
 
-        let contact = await findContactByEmail(fromAddress)
-        if (!contact) {
-          contact = await createContact({
-            name: from.name ?? fromAddress,
-            email: fromAddress,
-            source: 'email',
-            status: 'New',
-            unmatched: true
-          })
-          unmatched++
-        } else {
-          emailsLinked++
-        }
+        // Only Formspree submissions create new leads. Mail from senders who
+        // aren't already a contact is otherwise skipped entirely — inbound
+        // email should link to existing contacts, not mint new ones from
+        // whoever happens to email the inbox.
+        const contact = await findContactByEmail(fromAddress)
+        if (!contact) continue
+        emailsLinked++
 
         await createActivity({
           contactId: contact.id,

@@ -92,7 +92,9 @@ export async function scrapeProductUrl(url: string): Promise<ScrapedProduct> {
     })
   } catch (err) {
     if (err instanceof Error && err.name === 'TimeoutError') {
-      throw new Error('That site took too long to respond.')
+      throw new Error(
+        'That site didn\'t respond in time — likely blocking automated access rather than actually being slow (Best Buy and some other big retailers do this). Try a different retailer\'s page for the same product, or enter the details by hand.'
+      )
     }
     throw new Error(`Could not reach that page (${err instanceof Error ? err.message : String(err)})`)
   }

@@ -298,7 +298,7 @@ export default function Email(): React.JSX.Element {
                 {new Date(selected.occurredAt).toLocaleString()}
               </span>
             </div>
-            <div className="whitespace-pre-wrap rounded-lg border border-neutral-800 bg-neutral-900 p-5 text-sm text-neutral-200">
+            <div className="whitespace-pre-wrap break-words rounded-lg border border-neutral-800 bg-neutral-900 p-5 text-sm text-neutral-200">
               {selected.body}
             </div>
             {selected.direction === 'inbound' && (

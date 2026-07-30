@@ -92,6 +92,13 @@ export async function createActivity(input: CreateActivityInput): Promise<Activi
   return toActivity(existing.rows[0])
 }
 
+// Scoped to type = 'note' — this is only ever exposed for manually-added notes,
+// not synced records like emails or form submissions, which should stay as a
+// permanent record even if you want them out of view.
+export async function deleteNote(id: string): Promise<void> {
+  await getDb().query(`DELETE FROM activities WHERE id = $1 AND type = 'note'`, [id])
+}
+
 export async function messageIdExists(messageId: string): Promise<boolean> {
   const result = await getDb().query('SELECT 1 FROM activities WHERE "messageId" = $1', [
     messageId

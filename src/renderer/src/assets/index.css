@@ -11,6 +11,36 @@ body {
     sans-serif;
 }
 
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: theme('colors.neutral.700');
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: theme('colors.neutral.600');
+}
+
+/* The main window uses titleBarStyle: 'hiddenInset' (no native title bar),
+   so nothing is draggable unless explicitly marked — this strip provides
+   that, while interactive controls stay clickable even if one overlaps it. */
+.app-drag-region {
+  -webkit-app-region: drag;
+}
+button,
+a,
+input,
+select,
+textarea,
+[role='button'] {
+  -webkit-app-region: no-drag;
+}
+
 /* Printing an invoice/estimate: flip the dark UI to plain black-on-white paper
    and hide chrome (sidebar, buttons, nav links). */
 @media print {

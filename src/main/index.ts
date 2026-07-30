@@ -7,6 +7,17 @@ import { loadWorkspaceConfig } from './secrets/workspace'
 import { scheduleBackgroundSync } from './backgroundSync'
 import { migrateLegacyImapAccountIfNeeded } from './db/emailAccounts'
 
+// Safety net: a transient network error (dropped IMAP/SMTP socket, Postgres
+// idle-client blip) should never take the whole app down. Anything that gets
+// here is already a bug elsewhere — log it and keep the app alive rather than
+// crashing and losing whatever the user was doing.
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception (app staying alive):', err)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection (app staying alive):', reason)
+})
+
 // Dev (`npx electron .` / `npm run dev`) and the packaged app must never share local
 // storage — otherwise resetting dev test data (workspace connection, credentials) wipes
 // the real installed app's state too, since they'd otherwise use the same userData folder.

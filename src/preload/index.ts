@@ -12,7 +12,11 @@ import type {
   CreateContactInput,
   CreateEmailAccountInput,
   CreateEstimateInput,
+  CreateInventoryItemInput,
+  CreateInventoryTransactionInput,
   CreateInvoiceInput,
+  CreatePayeeInput,
+  CreatePayrollPaymentInput,
   CreateTaskInput,
   DashboardStats,
   EmailAccount,
@@ -20,13 +24,29 @@ import type {
   Estimate,
   EstimateWithContactName,
   EstimateWithItems,
+  InventoryItem,
+  InventoryTransaction,
   Invoice,
   InvoiceAnalytics,
   InvoiceStats,
   InvoiceWithContactName,
   InvoiceWithLineItems,
+  BankAccount,
+  BankTransaction,
+  BankTransactionWithAccount,
+  FinancesSummaryPoint,
   ListContactsFilter,
   ListEmailsFilter,
+  Payee,
+  PayrollPayment,
+  ReviewRequestWithDetails,
+  Payroll1099Summary,
+  PlaidCredentials,
+  PlaidExchangeResult,
+  PlaidItemSummary,
+  PlaidLinkTokenResult,
+  PlaidSettings,
+  PlaidSyncResult,
   SendEmailInput,
   SquareCredentials,
   SquareSettings,
@@ -38,11 +58,15 @@ import type {
   TaskWithContactName,
   TeamMember,
   TestEmailAccountInput,
+  TestSmtpAccountInput,
   UpdateCatalogItemInput,
   UpdateCheckResult,
+  UpdateBankTransactionInput,
   UpdateContactInput,
   UpdateEmailAccountInput,
   UpdateEstimateInput,
+  UpdateInventoryItemInput,
+  UpdatePayeeInput,
   UploadAttachmentInput
 } from '../shared/types'
 
@@ -79,6 +103,8 @@ const api = {
     delete: (id: string): Promise<void> => ipcRenderer.invoke('contacts:delete', id),
     addNote: (contactId: string, body: string, subject?: string | null): Promise<Activity> =>
       ipcRenderer.invoke('contacts:addNote', { contactId, body, subject }),
+    deleteNote: (activityId: string): Promise<void> =>
+      ipcRenderer.invoke('contacts:deleteNote', activityId),
     findOrCreateByEmail: (email: string, name?: string | null): Promise<Contact> =>
       ipcRenderer.invoke('contacts:findOrCreateByEmail', { email, name })
   },
@@ -93,7 +119,9 @@ const api = {
       ipcRenderer.invoke('emailAccounts:update', { id, input }),
     delete: (id: string): Promise<void> => ipcRenderer.invoke('emailAccounts:delete', id),
     test: (creds: TestEmailAccountInput): Promise<{ ok: boolean; error?: string }> =>
-      ipcRenderer.invoke('emailAccounts:test', creds)
+      ipcRenderer.invoke('emailAccounts:test', creds),
+    testSmtp: (creds: TestSmtpAccountInput): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('emailAccounts:testSmtp', creds)
   },
   settings: {
     getSquare: (): Promise<SquareSettings | null> => ipcRenderer.invoke('settings:getSquare'),
@@ -108,7 +136,21 @@ const api = {
     getCalendarFeedUrl: (): Promise<string | null> =>
       ipcRenderer.invoke('settings:getCalendarFeedUrl'),
     resetCalendarFeedToken: (): Promise<string | null> =>
-      ipcRenderer.invoke('settings:resetCalendarFeedToken')
+      ipcRenderer.invoke('settings:resetCalendarFeedToken'),
+    getPlaid: (): Promise<PlaidSettings | null> => ipcRenderer.invoke('settings:getPlaid'),
+    savePlaid: (creds: PlaidCredentials): Promise<void> =>
+      ipcRenderer.invoke('settings:savePlaid', creds),
+    getGoogleReviewLink: (): Promise<string | null> =>
+      ipcRenderer.invoke('settings:getGoogleReviewLink'),
+    saveGoogleReviewLink: (url: string): Promise<void> =>
+      ipcRenderer.invoke('settings:saveGoogleReviewLink', url)
+  },
+  reviewRequests: {
+    list: (): Promise<ReviewRequestWithDetails[]> => ipcRenderer.invoke('reviewRequests:list'),
+    count: (): Promise<number> => ipcRenderer.invoke('reviewRequests:count'),
+    send: (id: string): Promise<ReviewRequestWithDetails> =>
+      ipcRenderer.invoke('reviewRequests:send', id),
+    dismiss: (id: string): Promise<void> => ipcRenderer.invoke('reviewRequests:dismiss', id)
   },
   sync: {
     run: (): Promise<SyncResult> => ipcRenderer.invoke('sync:run'),
@@ -143,7 +185,9 @@ const api = {
     sendDraft: (id: string): Promise<InvoiceWithLineItems | null> =>
       ipcRenderer.invoke('invoices:sendDraft', id),
     delete: (id: string): Promise<{ deleted: boolean }> =>
-      ipcRenderer.invoke('invoices:delete', id)
+      ipcRenderer.invoke('invoices:delete', id),
+    updateCost: (id: string, costCents: number): Promise<Invoice | null> =>
+      ipcRenderer.invoke('invoices:updateCost', id, costCents)
   },
   email: {
     send: (input: SendEmailInput): Promise<Activity> => ipcRenderer.invoke('email:send', input),
@@ -194,6 +238,51 @@ const api = {
     check: (): Promise<UpdateCheckResult> => ipcRenderer.invoke('updates:check'),
     install: (downloadUrl: string): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('updates:install', downloadUrl)
+  },
+  inventory: {
+    list: (): Promise<InventoryItem[]> => ipcRenderer.invoke('inventory:list'),
+    create: (input: CreateInventoryItemInput): Promise<InventoryItem> =>
+      ipcRenderer.invoke('inventory:create', input),
+    update: (id: string, input: UpdateInventoryItemInput): Promise<InventoryItem | null> =>
+      ipcRenderer.invoke('inventory:update', { id, input }),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke('inventory:delete', id),
+    listTransactions: (itemId: string): Promise<InventoryTransaction[]> =>
+      ipcRenderer.invoke('inventory:listTransactions', itemId),
+    recordTransaction: (input: CreateInventoryTransactionInput): Promise<InventoryTransaction> =>
+      ipcRenderer.invoke('inventory:recordTransaction', input)
+  },
+  payees: {
+    list: (): Promise<Payee[]> => ipcRenderer.invoke('payees:list'),
+    create: (input: CreatePayeeInput): Promise<Payee> => ipcRenderer.invoke('payees:create', input),
+    update: (id: string, input: UpdatePayeeInput): Promise<Payee | null> =>
+      ipcRenderer.invoke('payees:update', { id, input }),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke('payees:delete', id)
+  },
+  payroll: {
+    listPayments: (): Promise<PayrollPayment[]> => ipcRenderer.invoke('payroll:listPayments'),
+    createPayment: (input: CreatePayrollPaymentInput): Promise<PayrollPayment> =>
+      ipcRenderer.invoke('payroll:createPayment', input),
+    deletePayment: (id: string): Promise<void> => ipcRenderer.invoke('payroll:deletePayment', id),
+    get1099Summary: (year: number): Promise<Payroll1099Summary> =>
+      ipcRenderer.invoke('payroll:get1099Summary', year)
+  },
+  plaid: {
+    createLinkToken: (): Promise<PlaidLinkTokenResult> => ipcRenderer.invoke('plaid:createLinkToken'),
+    exchangePublicToken: (publicToken: string, institutionName: string): Promise<PlaidExchangeResult> =>
+      ipcRenderer.invoke('plaid:exchangePublicToken', { publicToken, institutionName }),
+    sync: (): Promise<PlaidSyncResult> => ipcRenderer.invoke('plaid:sync'),
+    listItems: (): Promise<PlaidItemSummary[]> => ipcRenderer.invoke('plaid:listItems')
+  },
+  bankAccounts: {
+    list: (): Promise<BankAccount[]> => ipcRenderer.invoke('bankAccounts:list')
+  },
+  bankTransactions: {
+    list: (): Promise<BankTransactionWithAccount[]> => ipcRenderer.invoke('bankTransactions:list'),
+    update: (id: string, input: UpdateBankTransactionInput): Promise<BankTransaction | null> =>
+      ipcRenderer.invoke('bankTransactions:update', { id, input })
+  },
+  finances: {
+    summary: (): Promise<FinancesSummaryPoint[]> => ipcRenderer.invoke('finances:summary')
   }
 }
 

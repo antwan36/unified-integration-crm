@@ -10,7 +10,8 @@ function toDrafts(estimate: EstimateWithItems): LineItemDraft[] {
     ...emptyLineItem(),
     description: item.description,
     quantity: String(item.quantity),
-    unitPrice: (item.unitPriceCents / 100).toFixed(2)
+    unitPrice: (item.unitPriceCents / 100).toFixed(2),
+    link: item.link ?? ''
   }))
 }
 
@@ -33,6 +34,7 @@ export default function EstimateDetail(): React.JSX.Element {
   const [estimate, setEstimate] = useState<EstimateWithItems | null>(null)
   const [title, setTitle] = useState('')
   const [taxPercent, setTaxPercent] = useState('')
+  const [shipping, setShipping] = useState('')
   const [lineItems, setLineItems] = useState<LineItemDraft[]>([emptyLineItem()])
   const [saving, setSaving] = useState(false)
   const [sending, setSending] = useState(false)
@@ -54,6 +56,7 @@ export default function EstimateDetail(): React.JSX.Element {
     if (result) {
       setTitle(result.title)
       setTaxPercent(result.taxPercent ? String(result.taxPercent) : '')
+      setShipping(result.shippingCents ? (result.shippingCents / 100).toFixed(2) : '')
       setLineItems(toDrafts(result))
     }
   }
@@ -76,7 +79,8 @@ export default function EstimateDetail(): React.JSX.Element {
   }, 0)
   const taxPercentValue = Number(taxPercent) || 0
   const taxCents = Math.round(subtotalCents * (taxPercentValue / 100))
-  const totalCents = subtotalCents + taxCents
+  const shippingCents = Math.round((Number(shipping) || 0) * 100)
+  const totalCents = subtotalCents + taxCents + shippingCents
 
   const onSave = async (): Promise<void> => {
     if (!id) return
@@ -86,12 +90,14 @@ export default function EstimateDetail(): React.JSX.Element {
       const updated = await window.api.estimates.update(id, {
         title: title.trim(),
         taxPercent: taxPercentValue,
+        shippingCents,
         items: lineItems
           .filter((item) => item.description.trim() && Number(item.unitPrice) > 0)
           .map((item) => ({
             description: item.description.trim(),
             quantity: Number(item.quantity) || 1,
-            unitPriceCents: Math.round(Number(item.unitPrice) * 100)
+            unitPriceCents: Math.round(Number(item.unitPrice) * 100),
+            link: item.link.trim() || null
           }))
       })
       setEstimate(updated)
@@ -131,7 +137,7 @@ export default function EstimateDetail(): React.JSX.Element {
   }
 
   const onDelete = async (): Promise<void> => {
-    if (!confirm(`Delete estimate "${estimate.title}"? This can't be undone.`)) return
+    if (!confirm(`Delete quote "${estimate.title}"? This can't be undone.`)) return
     await window.api.estimates.delete(estimate.id)
     navigate(`/contacts/${estimate.contactId}`)
   }
@@ -142,10 +148,12 @@ export default function EstimateDetail(): React.JSX.Element {
         copyFrom: {
           title: estimate.title,
           taxPercent: estimate.taxPercent,
+          shippingCents: estimate.shippingCents,
           lineItems: estimate.items.map((item) => ({
             description: item.description,
             quantity: item.quantity,
-            unitPriceCents: item.unitPriceCents
+            unitPriceCents: item.unitPriceCents,
+            link: item.link
           }))
         }
       }
@@ -214,17 +222,31 @@ export default function EstimateDetail(): React.JSX.Element {
           disabled={!isDraft}
         />
 
-        <div>
-          <label className="mb-1 block text-xs text-neutral-400">Tax %</label>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={taxPercent}
-            onChange={(e) => setTaxPercent(e.target.value)}
-            disabled={!isDraft}
-            className="w-28 rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm text-white outline-none focus:border-primary disabled:opacity-60"
-          />
+        <div className="flex gap-3">
+          <div>
+            <label className="mb-1 block text-xs text-neutral-400">Tax %</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={taxPercent}
+              onChange={(e) => setTaxPercent(e.target.value)}
+              disabled={!isDraft}
+              className="w-28 rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm text-white outline-none focus:border-primary disabled:opacity-60"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-neutral-400">Shipping ($)</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={shipping}
+              onChange={(e) => setShipping(e.target.value)}
+              disabled={!isDraft}
+              className="w-28 rounded border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm text-white outline-none focus:border-primary disabled:opacity-60"
+            />
+          </div>
         </div>
 
         <div className="flex items-center justify-between border-t border-neutral-800 pt-4">
@@ -236,6 +258,11 @@ export default function EstimateDetail(): React.JSX.Element {
               <div>
                 Tax ({taxPercentValue}%):{' '}
                 <span className="text-white">${(taxCents / 100).toFixed(2)}</span>
+              </div>
+            )}
+            {shippingCents > 0 && (
+              <div>
+                Shipping: <span className="text-white">${(shippingCents / 100).toFixed(2)}</span>
               </div>
             )}
             <div className="font-semibold">

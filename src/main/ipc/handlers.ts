@@ -19,6 +19,7 @@ import {
 import {
   listActivitiesForContact,
   createActivity,
+  deleteNote,
   recentActivitiesWithContactName,
   listEmailActivities,
   countUnreadEmails,
@@ -39,7 +40,8 @@ import {
   listAllInvoices,
   getInvoice,
   getInvoiceStats,
-  getInvoiceAnalytics
+  getInvoiceAnalytics,
+  updateInvoiceCost
 } from '../db/invoices'
 import {
   createAndSendInvoice,
@@ -51,7 +53,7 @@ import { runSquareSync } from '../square/sync'
 import { listSquareLocations, SquareApiError } from '../square/client'
 import { syncContactToSquare, deleteSquareCustomerIfLinked } from '../square/customers'
 import { saveSquareCredentials, squareSettingsSummary } from '../secrets/square-credentials'
-import { sendMail } from '../email/smtp'
+import { sendMail, testSmtpConnection } from '../email/smtp'
 import {
   createTask,
   listTasksForContact,
@@ -75,6 +77,13 @@ import {
   convertEstimateToInvoice
 } from '../estimates/actions'
 import { getCalendarFeedUrl, resetCalendarFeedToken } from '../calendar/feed'
+import { listQueuedReviewRequests, countQueuedReviewRequests } from '../db/reviewRequests'
+import {
+  getGoogleReviewLink,
+  saveGoogleReviewLink,
+  sendReviewRequest,
+  dismissReviewRequestAction
+} from '../reviewRequests/actions'
 import {
   listAttachmentsForContact,
   uploadAttachment,
@@ -89,6 +98,25 @@ import {
   deleteCatalogItem
 } from '../db/catalog'
 import { scrapeProductUrl } from '../catalog/scrape'
+import {
+  listInventoryItems,
+  createInventoryItem,
+  updateInventoryItem,
+  deleteInventoryItem,
+  listInventoryTransactionsForItem,
+  recordInventoryTransaction
+} from '../db/inventory'
+import { listPayees, createPayee, updatePayee, deletePayee } from '../db/payees'
+import {
+  listPayrollPayments,
+  createPayrollPayment,
+  deletePayrollPayment,
+  get1099Summary
+} from '../db/payroll'
+import { savePlaidCredentials, plaidSettingsSummary } from '../secrets/plaid-credentials'
+import { createLinkToken, exchangePublicToken } from '../plaid/link'
+import { runPlaidSyncAll } from '../plaid/sync'
+import { listPlaidItemSummaries, listBankAccounts, listBankTransactions, updateBankTransaction, getFinancesSummary } from '../db/plaid'
 import { checkForUpdate, installUpdate } from '../updater'
 import { CONTACT_STATUSES } from '../../shared/types'
 import type {
@@ -98,6 +126,10 @@ import type {
   CreateEstimateInput,
   CreateInvoiceInput,
   CreateEmailAccountInput,
+  CreateInventoryItemInput,
+  CreateInventoryTransactionInput,
+  CreatePayeeInput,
+  CreatePayrollPaymentInput,
   CreateTaskInput,
   DashboardStats,
   ListContactsFilter,
@@ -106,10 +138,15 @@ import type {
   SquareTestResult,
   ListEmailsFilter,
   TestEmailAccountInput,
+  TestSmtpAccountInput,
   UpdateCatalogItemInput,
   UpdateContactInput,
   UpdateEmailAccountInput,
   UpdateEstimateInput,
+  UpdateBankTransactionInput,
+  UpdateInventoryItemInput,
+  UpdatePayeeInput,
+  PlaidCredentials,
   UploadAttachmentInput
 } from '../../shared/types'
 
@@ -215,6 +252,10 @@ export function registerIpcHandlers(): void {
     ) => createActivity({ contactId, type: 'note', subject: subject ?? null, body, direction: null })
   )
 
+  ipcMain.handle('contacts:deleteNote', async (_event, activityId: string) =>
+    deleteNote(activityId)
+  )
+
   // --- Dashboard ---
   ipcMain.handle('dashboard:stats', async (): Promise<DashboardStats> => {
     const [counts, totalContacts, unmatchedCount, recent, recentActivities, staleLeads] =
@@ -271,6 +312,10 @@ export function registerIpcHandlers(): void {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
+
+  ipcMain.handle('emailAccounts:testSmtp', async (_event, creds: TestSmtpAccountInput) =>
+    testSmtpConnection(creds)
+  )
 
   ipcMain.handle('sync:run', async () => runImapSyncAll())
 
@@ -371,6 +416,10 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('invoices:delete', async (_event, id: string) => deleteOrCancelInvoice(id))
 
+  ipcMain.handle('invoices:updateCost', async (_event, id: string, costCents: number) =>
+    updateInvoiceCost(id, costCents)
+  )
+
   // --- Settings / Square ---
   ipcMain.handle('settings:getSquare', async () => squareSettingsSummary())
 
@@ -463,6 +512,18 @@ export function registerIpcHandlers(): void {
       convertEstimateToInvoice(id, dueDate)
   )
 
+  // --- Review requests ---
+  ipcMain.handle('reviewRequests:list', async () => listQueuedReviewRequests())
+  ipcMain.handle('reviewRequests:count', async () => countQueuedReviewRequests())
+  ipcMain.handle('reviewRequests:send', async (_event, id: string) => sendReviewRequest(id))
+  ipcMain.handle('reviewRequests:dismiss', async (_event, id: string) => {
+    await dismissReviewRequestAction(id)
+  })
+  ipcMain.handle('settings:getGoogleReviewLink', async () => getGoogleReviewLink())
+  ipcMain.handle('settings:saveGoogleReviewLink', async (_event, url: string) => {
+    await saveGoogleReviewLink(url)
+  })
+
   // --- Catalog ---
   ipcMain.handle('catalog:list', async () => listCatalogItems())
 
@@ -488,6 +549,89 @@ export function registerIpcHandlers(): void {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
+
+  // --- Inventory ---
+  ipcMain.handle('inventory:list', async () => listInventoryItems())
+
+  ipcMain.handle('inventory:create', async (_event, input: CreateInventoryItemInput) =>
+    createInventoryItem(input)
+  )
+
+  ipcMain.handle(
+    'inventory:update',
+    async (_event, { id, input }: { id: string; input: UpdateInventoryItemInput }) =>
+      updateInventoryItem(id, input)
+  )
+
+  ipcMain.handle('inventory:delete', async (_event, id: string) => {
+    await deleteInventoryItem(id)
+  })
+
+  ipcMain.handle('inventory:listTransactions', async (_event, itemId: string) =>
+    listInventoryTransactionsForItem(itemId)
+  )
+
+  ipcMain.handle(
+    'inventory:recordTransaction',
+    async (_event, input: CreateInventoryTransactionInput) => recordInventoryTransaction(input)
+  )
+
+  // --- Payroll ---
+  ipcMain.handle('payees:list', async () => listPayees())
+
+  ipcMain.handle('payees:create', async (_event, input: CreatePayeeInput) => createPayee(input))
+
+  ipcMain.handle(
+    'payees:update',
+    async (_event, { id, input }: { id: string; input: UpdatePayeeInput }) => updatePayee(id, input)
+  )
+
+  ipcMain.handle('payees:delete', async (_event, id: string) => {
+    await deletePayee(id)
+  })
+
+  ipcMain.handle('payroll:listPayments', async () => listPayrollPayments())
+
+  ipcMain.handle('payroll:createPayment', async (_event, input: CreatePayrollPaymentInput) =>
+    createPayrollPayment(input)
+  )
+
+  ipcMain.handle('payroll:deletePayment', async (_event, id: string) => {
+    await deletePayrollPayment(id)
+  })
+
+  ipcMain.handle('payroll:get1099Summary', async (_event, year: number) => get1099Summary(year))
+
+  // --- Plaid / Bank sync ---
+  ipcMain.handle('settings:getPlaid', async () => plaidSettingsSummary())
+
+  ipcMain.handle('settings:savePlaid', async (_event, creds: PlaidCredentials) => {
+    await savePlaidCredentials(creds)
+  })
+
+  ipcMain.handle('plaid:createLinkToken', async () => createLinkToken())
+
+  ipcMain.handle(
+    'plaid:exchangePublicToken',
+    async (_event, { publicToken, institutionName }: { publicToken: string; institutionName: string }) =>
+      exchangePublicToken(publicToken, institutionName)
+  )
+
+  ipcMain.handle('plaid:sync', async () => runPlaidSyncAll())
+
+  ipcMain.handle('plaid:listItems', async () => listPlaidItemSummaries())
+
+  ipcMain.handle('bankAccounts:list', async () => listBankAccounts())
+
+  ipcMain.handle('bankTransactions:list', async () => listBankTransactions())
+
+  ipcMain.handle(
+    'bankTransactions:update',
+    async (_event, { id, input }: { id: string; input: UpdateBankTransactionInput }) =>
+      updateBankTransaction(id, input)
+  )
+
+  ipcMain.handle('finances:summary', async () => getFinancesSummary())
 
   // --- Export ---
   ipcMain.handle('export:contacts', async () => exportContactsCsv())

@@ -91,6 +91,10 @@ CREATE TABLE IF NOT EXISTS invoices (
 
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS "taxPercent" DOUBLE PRECISION NOT NULL DEFAULT 0;
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS "totalCents" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS "shippingCents" INTEGER NOT NULL DEFAULT 0;
+-- Internal-only: what the job actually cost you (materials, labor, etc.). Never
+-- sent to Square, never shown to the client — purely for the Invoices tab's profit view.
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS "costCents" INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS "paidCents" INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS "refundedCents" INTEGER NOT NULL DEFAULT 0;
 
@@ -105,7 +109,26 @@ CREATE TABLE IF NOT EXISTS invoice_line_items (
   "unitPriceCents" INTEGER NOT NULL
 );
 
+ALTER TABLE invoice_line_items ADD COLUMN IF NOT EXISTS "sortOrder" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE invoice_line_items ADD COLUMN IF NOT EXISTS "link" TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_invoice_line_items_invoice ON invoice_line_items("invoiceId");
+
+-- Queued when a Square invoice transitions to PAID (see upsertInvoiceFromSquare).
+-- One row per invoice (UNIQUE) so repeated syncs never double-queue the same job.
+CREATE TABLE IF NOT EXISTS review_requests (
+  id TEXT PRIMARY KEY,
+  "contactId" TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+  "invoiceId" TEXT NOT NULL UNIQUE REFERENCES invoices(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'queued',
+  "queuedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+  "sentAt" TIMESTAMPTZ,
+  "dismissedAt" TIMESTAMPTZ,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_requests_status ON review_requests(status);
+CREATE INDEX IF NOT EXISTS idx_review_requests_contact ON review_requests("contactId");
 
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
@@ -140,6 +163,7 @@ CREATE TABLE IF NOT EXISTS estimates (
   title TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'draft',
   "taxPercent" DOUBLE PRECISION NOT NULL DEFAULT 0,
+  "shippingCents" INTEGER NOT NULL DEFAULT 0,
   "signToken" TEXT UNIQUE,
   "signerName" TEXT,
   "signedAt" TIMESTAMPTZ,
@@ -148,6 +172,8 @@ CREATE TABLE IF NOT EXISTS estimates (
   "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
   "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE estimates ADD COLUMN IF NOT EXISTS "shippingCents" INTEGER NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_estimates_contact ON estimates("contactId");
 CREATE INDEX IF NOT EXISTS idx_estimates_status ON estimates(status);
@@ -161,6 +187,8 @@ CREATE TABLE IF NOT EXISTS estimate_items (
   "unitPriceCents" INTEGER NOT NULL,
   "sortOrder" INTEGER NOT NULL DEFAULT 0
 );
+
+ALTER TABLE estimate_items ADD COLUMN IF NOT EXISTS "link" TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_estimate_items_estimate ON estimate_items("estimateId");
 
@@ -186,4 +214,109 @@ CREATE TABLE IF NOT EXISTS catalog_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_catalog_items_name ON catalog_items(name);
+
+CREATE TABLE IF NOT EXISTS inventory_items (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  sku TEXT,
+  description TEXT,
+  category TEXT,
+  "unitCostCents" INTEGER NOT NULL DEFAULT 0,
+  "quantityOnHand" DOUBLE PRECISION NOT NULL DEFAULT 0,
+  "reorderThreshold" DOUBLE PRECISION,
+  location TEXT,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_items_name ON inventory_items(name);
+
+CREATE TABLE IF NOT EXISTS inventory_transactions (
+  id TEXT PRIMARY KEY,
+  "itemId" TEXT NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  "quantityDelta" DOUBLE PRECISION NOT NULL,
+  "unitCostCents" INTEGER,
+  "contactId" TEXT REFERENCES contacts(id) ON DELETE SET NULL,
+  notes TEXT,
+  date TEXT NOT NULL,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_inventory_transactions_item ON inventory_transactions("itemId");
+
+CREATE TABLE IF NOT EXISTS payees (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  email TEXT,
+  phone TEXT,
+  "encryptedTaxId" TEXT,
+  "rateType" TEXT NOT NULL DEFAULT 'hourly',
+  "defaultRateCents" INTEGER,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_payees_name ON payees(name);
+
+CREATE TABLE IF NOT EXISTS payroll_payments (
+  id TEXT PRIMARY KEY,
+  "payeeId" TEXT NOT NULL REFERENCES payees(id) ON DELETE CASCADE,
+  "amountCents" INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  method TEXT NOT NULL DEFAULT 'other',
+  "contactId" TEXT REFERENCES contacts(id) ON DELETE SET NULL,
+  memo TEXT,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_payroll_payments_payee ON payroll_payments("payeeId");
+CREATE INDEX IF NOT EXISTS idx_payroll_payments_date ON payroll_payments(date);
+
+CREATE TABLE IF NOT EXISTS plaid_items (
+  id TEXT PRIMARY KEY,
+  "itemId" TEXT UNIQUE NOT NULL,
+  "institutionName" TEXT NOT NULL,
+  "encryptedAccessToken" TEXT NOT NULL,
+  "transactionsCursor" TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS bank_accounts (
+  id TEXT PRIMARY KEY,
+  "plaidItemId" TEXT NOT NULL REFERENCES plaid_items(id) ON DELETE CASCADE,
+  "plaidAccountId" TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  mask TEXT,
+  type TEXT,
+  subtype TEXT,
+  "currentBalanceCents" INTEGER,
+  "availableBalanceCents" INTEGER,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_bank_accounts_item ON bank_accounts("plaidItemId");
+
+CREATE TABLE IF NOT EXISTS bank_transactions (
+  id TEXT PRIMARY KEY,
+  "bankAccountId" TEXT NOT NULL REFERENCES bank_accounts(id) ON DELETE CASCADE,
+  "plaidTransactionId" TEXT UNIQUE NOT NULL,
+  "amountCents" INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  "merchantName" TEXT,
+  "plaidCategory" TEXT,
+  "userCategory" TEXT,
+  "contactId" TEXT REFERENCES contacts(id) ON DELETE SET NULL,
+  pending BOOLEAN NOT NULL DEFAULT FALSE,
+  notes TEXT,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_bank_transactions_account ON bank_transactions("bankAccountId");
+CREATE INDEX IF NOT EXISTS idx_bank_transactions_date ON bank_transactions(date);
 `

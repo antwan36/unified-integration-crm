@@ -15,6 +15,7 @@ import {
   setSquareCustomerId
 } from '../db/contacts'
 import { upsertInvoiceFromSquare } from '../db/invoices'
+import { queueReviewRequest } from '../db/reviewRequests'
 import type {
   CreateInvoiceLineItemInput,
   InvoiceStatus,
@@ -99,7 +100,7 @@ async function syncInvoices(
         }
       }
 
-      const { inserted, becamePaid } = await upsertInvoiceFromSquare({
+      const { id: invoiceId, inserted, becamePaid } = await upsertInvoiceFromSquare({
         contactId: contact.id,
         squareInvoiceId: invoice.id,
         squareOrderId: invoice.order_id ?? null,
@@ -107,6 +108,7 @@ async function syncInvoices(
         dueDate: invoice.payment_requests?.[0]?.due_date ?? new Date().toISOString().slice(0, 10),
         subtotalCents,
         taxPercent: 0,
+        shippingCents: 0,
         totalCents,
         paidCents: sumInvoicePaidCents(invoice.payment_requests),
         refundedCents,
@@ -117,7 +119,10 @@ async function syncInvoices(
       })
       if (inserted) created++
       else updated++
-      if (becamePaid) paid++
+      if (becamePaid) {
+        paid++
+        await queueReviewRequest(contact.id, invoiceId)
+      }
     } catch (err) {
       console.error(`Failed to import Square invoice ${invoice.id}:`, err)
     }

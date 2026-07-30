@@ -52,6 +52,10 @@ export async function listContacts(filter: ListContactsFilter = {}): Promise<Con
     params.push(filter.jobType)
     query += ` AND "jobType" = $${params.length}`
   }
+  if (filter.source) {
+    params.push(filter.source)
+    query += ` AND source = $${params.length}`
+  }
   if (filter.search) {
     const like = `%${filter.search}%`
     params.push(like, like, like)

@@ -26,7 +26,7 @@ export default function Estimates(): React.JSX.Element {
 
   return (
     <div className="p-8">
-      <h1 className="text-xl font-semibold text-white">Estimates</h1>
+      <h1 className="text-xl font-semibold text-white">Quotes</h1>
       <p className="mt-1 text-sm text-neutral-500">
         Start a new one from a contact's page — build the item list, send it for signature, then
         convert it to an invoice once signed.
@@ -73,7 +73,7 @@ export default function Estimates(): React.JSX.Element {
             {estimates.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-4 py-8 text-center text-neutral-500">
-                  No estimates yet.
+                  No quotes yet.
                 </td>
               </tr>
             )}
