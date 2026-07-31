@@ -1,6 +1,6 @@
 {
   "name": "unified-integration-crm",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Local client management app for Unified Integration",
   "main": "./out/main/index.js",
   "scripts": {
