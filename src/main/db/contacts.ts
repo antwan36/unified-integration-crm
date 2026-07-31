@@ -214,3 +214,21 @@ export async function setSquareCustomerId(
     contactId
   ])
 }
+
+export async function getQuickBooksCustomerId(contactId: string): Promise<string | null> {
+  const result = await getDb().query<{ quickbooksCustomerId: string | null }>(
+    'SELECT "quickbooksCustomerId" FROM contacts WHERE id = $1',
+    [contactId]
+  )
+  return result.rows[0]?.quickbooksCustomerId ?? null
+}
+
+export async function setQuickBooksCustomerId(
+  contactId: string,
+  quickbooksCustomerId: string
+): Promise<void> {
+  await getDb().query('UPDATE contacts SET "quickbooksCustomerId" = $1 WHERE id = $2', [
+    quickbooksCustomerId,
+    contactId
+  ])
+}

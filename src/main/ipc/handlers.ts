@@ -46,6 +46,7 @@ import {
 import {
   createAndSendInvoice,
   deleteOrCancelInvoice,
+  markInvoicePaidManually,
   refreshInvoice,
   sendDraftInvoice
 } from '../square/invoices'
@@ -53,6 +54,9 @@ import { runSquareSync } from '../square/sync'
 import { listSquareLocations, SquareApiError } from '../square/client'
 import { syncContactToSquare, deleteSquareCustomerIfLinked } from '../square/customers'
 import { saveSquareCredentials, squareSettingsSummary } from '../secrets/square-credentials'
+import { saveQuickBooksCredentials, quickBooksSettingsSummary } from '../secrets/quickbooks-credentials'
+import { testQuickBooksCredentials, QuickBooksApiError } from '../quickbooks/client'
+import { runQuickBooksMigration } from '../quickbooks/migrate'
 import { sendMail, testSmtpConnection } from '../email/smtp'
 import {
   createTask,
@@ -136,6 +140,8 @@ import type {
   SendEmailInput,
   SquareCredentials,
   SquareTestResult,
+  QuickBooksCredentials,
+  QuickBooksTestResult,
   ListEmailsFilter,
   TestEmailAccountInput,
   TestSmtpAccountInput,
@@ -420,6 +426,8 @@ export function registerIpcHandlers(): void {
     updateInvoiceCost(id, costCents)
   )
 
+  ipcMain.handle('invoices:markPaid', async (_event, id: string) => markInvoicePaidManually(id))
+
   // --- Settings / Square ---
   ipcMain.handle('settings:getSquare', async () => squareSettingsSummary())
 
@@ -448,6 +456,32 @@ export function registerIpcHandlers(): void {
   )
 
   ipcMain.handle('square:sync', async () => runSquareSync())
+
+  // --- Settings / QuickBooks ---
+  ipcMain.handle('settings:getQuickBooks', async () => quickBooksSettingsSummary())
+
+  ipcMain.handle(
+    'settings:testQuickBooks',
+    async (_event, creds: QuickBooksCredentials): Promise<QuickBooksTestResult> => {
+      try {
+        const { companyName } = await testQuickBooksCredentials(creds)
+        return { ok: true, companyName }
+      } catch (err) {
+        const message =
+          err instanceof QuickBooksApiError ? err.message : err instanceof Error ? err.message : String(err)
+        return { ok: false, error: message }
+      }
+    }
+  )
+
+  ipcMain.handle('settings:saveQuickBooks', async (_event, creds: QuickBooksCredentials) => {
+    // Re-validate + capture the exchanged (possibly rotated) token pair and company name
+    // right before saving, rather than trusting whatever the renderer last tested with.
+    const { companyName, validated } = await testQuickBooksCredentials(creds)
+    await saveQuickBooksCredentials(validated, companyName)
+  })
+
+  ipcMain.handle('quickbooks:migrate', async () => runQuickBooksMigration())
 
   // --- Tasks ---
   ipcMain.handle('tasks:listForContact', async (_event, contactId: string) =>

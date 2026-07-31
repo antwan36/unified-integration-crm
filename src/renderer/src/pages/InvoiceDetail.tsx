@@ -18,6 +18,7 @@ export default function InvoiceDetail(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [costInput, setCostInput] = useState('')
   const [savingCost, setSavingCost] = useState(false)
+  const [markingPaid, setMarkingPaid] = useState(false)
 
   const load = async (): Promise<void> => {
     if (!id) return
@@ -91,6 +92,23 @@ export default function InvoiceDetail(): React.JSX.Element {
       }
     } catch (err) {
       setError(cleanIpcError(err))
+    }
+  }
+
+  const onMarkPaid = async (): Promise<void> => {
+    if (!id || !invoice) return
+    if (!confirm(`Mark "${invoice.title}" (${formatCents(invoice.totalCents)}) as paid in full? This doesn't process any payment — record it here once you've been paid another way.`)) {
+      return
+    }
+    setMarkingPaid(true)
+    setError(null)
+    try {
+      const updated = await window.api.invoices.markPaid(id)
+      if (updated) setInvoice(updated)
+    } catch (err) {
+      setError(cleanIpcError(err))
+    } finally {
+      setMarkingPaid(false)
     }
   }
 
@@ -287,6 +305,15 @@ export default function InvoiceDetail(): React.JSX.Element {
         >
           {refreshing ? 'Refreshing…' : 'Refresh status'}
         </button>
+        {!['PAID', 'REFUNDED', 'PARTIALLY_REFUNDED', 'CANCELED', 'FAILED', 'DRAFT'].includes(invoice.status) && (
+          <button
+            onClick={onMarkPaid}
+            disabled={markingPaid}
+            className="rounded border border-emerald-700 px-3 py-1.5 text-sm text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-40"
+          >
+            {markingPaid ? 'Marking…' : 'Mark as paid'}
+          </button>
+        )}
         <button
           onClick={onDuplicate}
           className="rounded border border-neutral-700 px-3 py-1.5 text-sm text-white hover:bg-neutral-800"

@@ -53,6 +53,10 @@ import type {
   ScrapeProductResult,
   SquareSyncResult,
   SquareTestResult,
+  QuickBooksCredentials,
+  QuickBooksSettings,
+  QuickBooksTestResult,
+  QuickBooksSyncResult,
   SyncResult,
   Task,
   TaskWithContactName,
@@ -143,7 +147,13 @@ const api = {
     getGoogleReviewLink: (): Promise<string | null> =>
       ipcRenderer.invoke('settings:getGoogleReviewLink'),
     saveGoogleReviewLink: (url: string): Promise<void> =>
-      ipcRenderer.invoke('settings:saveGoogleReviewLink', url)
+      ipcRenderer.invoke('settings:saveGoogleReviewLink', url),
+    getQuickBooks: (): Promise<QuickBooksSettings | null> =>
+      ipcRenderer.invoke('settings:getQuickBooks'),
+    testQuickBooks: (creds: QuickBooksCredentials): Promise<QuickBooksTestResult> =>
+      ipcRenderer.invoke('settings:testQuickBooks', creds),
+    saveQuickBooks: (creds: QuickBooksCredentials): Promise<void> =>
+      ipcRenderer.invoke('settings:saveQuickBooks', creds)
   },
   reviewRequests: {
     list: (): Promise<ReviewRequestWithDetails[]> => ipcRenderer.invoke('reviewRequests:list'),
@@ -158,6 +168,9 @@ const api = {
   },
   square: {
     sync: (): Promise<SquareSyncResult> => ipcRenderer.invoke('square:sync')
+  },
+  quickbooks: {
+    migrate: (): Promise<QuickBooksSyncResult> => ipcRenderer.invoke('quickbooks:migrate')
   },
   tasks: {
     listForContact: (contactId: string): Promise<Task[]> =>
@@ -187,7 +200,9 @@ const api = {
     delete: (id: string): Promise<{ deleted: boolean }> =>
       ipcRenderer.invoke('invoices:delete', id),
     updateCost: (id: string, costCents: number): Promise<Invoice | null> =>
-      ipcRenderer.invoke('invoices:updateCost', id, costCents)
+      ipcRenderer.invoke('invoices:updateCost', id, costCents),
+    markPaid: (id: string): Promise<InvoiceWithLineItems | null> =>
+      ipcRenderer.invoke('invoices:markPaid', id)
   },
   email: {
     send: (input: SendEmailInput): Promise<Activity> => ipcRenderer.invoke('email:send', input),

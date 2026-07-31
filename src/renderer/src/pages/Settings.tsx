@@ -4,6 +4,10 @@ import type {
   PlaidEnvironment,
   PlaidSettings,
   PlaidSyncResult,
+  QuickBooksEnvironment,
+  QuickBooksSettings,
+  QuickBooksSyncResult,
+  QuickBooksTestResult,
   SquareEnvironment,
   SquareSettings,
   SquareSyncResult,
@@ -49,6 +53,20 @@ export default function Settings(): React.JSX.Element {
   const [squareSyncResult, setSquareSyncResult] = useState<SquareSyncResult | null>(null)
   const [squareSyncing, setSquareSyncing] = useState(false)
 
+  const [quickbooksCurrent, setQuickbooksCurrent] = useState<QuickBooksSettings | null>(null)
+  const [quickbooksForm, setQuickbooksForm] = useState({
+    clientId: '',
+    clientSecret: '',
+    refreshToken: '',
+    realmId: '',
+    environment: 'production' as QuickBooksEnvironment
+  })
+  const [quickbooksTestResult, setQuickbooksTestResult] = useState<QuickBooksTestResult | null>(null)
+  const [quickbooksTesting, setQuickbooksTesting] = useState(false)
+  const [quickbooksSaving, setQuickbooksSaving] = useState(false)
+  const [quickbooksMigrateResult, setQuickbooksMigrateResult] = useState<QuickBooksSyncResult | null>(null)
+  const [quickbooksMigrating, setQuickbooksMigrating] = useState(false)
+
   const [plaidCurrent, setPlaidCurrent] = useState<PlaidSettings | null>(null)
   const [plaidForm, setPlaidForm] = useState({
     clientId: '',
@@ -93,6 +111,12 @@ export default function Settings(): React.JSX.Element {
     const plaid = await window.api.settings.getPlaid()
     setPlaidCurrent(plaid)
     if (plaid) setPlaidForm((f) => ({ ...f, environment: plaid.environment }))
+
+    const quickbooks = await window.api.settings.getQuickBooks()
+    setQuickbooksCurrent(quickbooks)
+    if (quickbooks) {
+      setQuickbooksForm((f) => ({ ...f, environment: quickbooks.environment, realmId: quickbooks.realmId }))
+    }
 
     const savedPortalUrl = await window.api.settings.getPortalUrl()
     setPortalUrlSaved(savedPortalUrl)
@@ -263,6 +287,63 @@ export default function Settings(): React.JSX.Element {
       setSquareSyncResult(result)
     } finally {
       setSquareSyncing(false)
+    }
+  }
+
+  const onTestQuickBooks = async (): Promise<void> => {
+    setQuickbooksTesting(true)
+    setQuickbooksTestResult(null)
+    try {
+      const result = await window.api.settings.testQuickBooks({
+        clientId: quickbooksForm.clientId,
+        clientSecret: quickbooksForm.clientSecret,
+        refreshToken: quickbooksForm.refreshToken,
+        realmId: quickbooksForm.realmId,
+        environment: quickbooksForm.environment,
+        accessToken: null,
+        accessTokenExpiresAt: null
+      })
+      setQuickbooksTestResult(result)
+    } finally {
+      setQuickbooksTesting(false)
+    }
+  }
+
+  const onSaveQuickBooks = async (): Promise<void> => {
+    setQuickbooksSaving(true)
+    try {
+      await window.api.settings.saveQuickBooks({
+        clientId: quickbooksForm.clientId,
+        clientSecret: quickbooksForm.clientSecret,
+        refreshToken: quickbooksForm.refreshToken,
+        realmId: quickbooksForm.realmId,
+        environment: quickbooksForm.environment,
+        accessToken: null,
+        accessTokenExpiresAt: null
+      })
+      setQuickbooksForm((f) => ({ ...f, clientSecret: '', refreshToken: '' }))
+      setQuickbooksTestResult(null)
+      await load()
+    } finally {
+      setQuickbooksSaving(false)
+    }
+  }
+
+  const onMigrateQuickBooks = async (): Promise<void> => {
+    if (
+      !window.confirm(
+        'This will push every non-draft invoice (and its customer + payment history) into QuickBooks as historical records. Already-migrated invoices are skipped automatically, so this is safe to re-run. Continue?'
+      )
+    ) {
+      return
+    }
+    setQuickbooksMigrating(true)
+    setQuickbooksMigrateResult(null)
+    try {
+      const result = await window.api.quickbooks.migrate()
+      setQuickbooksMigrateResult(result)
+    } finally {
+      setQuickbooksMigrating(false)
     }
   }
 
@@ -737,6 +818,174 @@ export default function Settings(): React.JSX.Element {
                   </p>
                 ) : (
                   <p className="text-red-400">{squareSyncResult.error}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-5">
+        <h2 className="text-sm font-semibold text-white">QuickBooks (accounting)</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          Square stays live for now — this connects QuickBooks alongside it so historical data
+          can be migrated ahead of the actual cutover. Create an app at{' '}
+          <a
+            href="https://developer.intuit.com/app/developer/myapps"
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary hover:underline"
+          >
+            developer.intuit.com
+          </a>{' '}
+          to get a Client ID/Secret, then use the{' '}
+          <a
+            href="https://developer.intuit.com/app/developer/playground"
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary hover:underline"
+          >
+            OAuth 2.0 Playground
+          </a>{' '}
+          to connect to your company once and generate a Refresh Token + Realm ID (Company ID).
+          This app refreshes the token automatically from there — no need to revisit the
+          playground unless the connection goes 100+ days unused.
+        </p>
+
+        {quickbooksCurrent && (
+          <p className="mt-3 rounded bg-emerald-500/10 px-3 py-2 text-xs text-emerald-400">
+            Connected: {quickbooksCurrent.environment}
+            {quickbooksCurrent.companyName ? ` — ${quickbooksCurrent.companyName}` : ''}
+          </p>
+        )}
+
+        <div className="mt-4 space-y-3">
+          <div className="flex gap-4 text-sm text-neutral-300">
+            <label className="flex items-center gap-1.5">
+              <input
+                type="radio"
+                checked={quickbooksForm.environment === 'production'}
+                onChange={() => setQuickbooksForm({ ...quickbooksForm, environment: 'production' })}
+              />
+              Production
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input
+                type="radio"
+                checked={quickbooksForm.environment === 'sandbox'}
+                onChange={() => setQuickbooksForm({ ...quickbooksForm, environment: 'sandbox' })}
+              />
+              Sandbox (testing only)
+            </label>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs text-neutral-400">Client ID</label>
+            <input
+              type="text"
+              value={quickbooksForm.clientId}
+              onChange={(e) => setQuickbooksForm({ ...quickbooksForm, clientId: e.target.value })}
+              className="w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm text-white outline-none focus:border-primary"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-neutral-400">Client Secret</label>
+            <input
+              type="password"
+              value={quickbooksForm.clientSecret}
+              onChange={(e) => setQuickbooksForm({ ...quickbooksForm, clientSecret: e.target.value })}
+              className="w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm text-white outline-none focus:border-primary"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-neutral-400">Realm ID (Company ID)</label>
+            <input
+              type="text"
+              value={quickbooksForm.realmId}
+              onChange={(e) => setQuickbooksForm({ ...quickbooksForm, realmId: e.target.value })}
+              className="w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm text-white outline-none focus:border-primary"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-neutral-400">Refresh Token</label>
+            <input
+              type="password"
+              value={quickbooksForm.refreshToken}
+              onChange={(e) => setQuickbooksForm({ ...quickbooksForm, refreshToken: e.target.value })}
+              className="w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm text-white outline-none focus:border-primary"
+            />
+          </div>
+        </div>
+
+        {quickbooksTestResult && (
+          <p className={`mt-3 text-xs ${quickbooksTestResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+            {quickbooksTestResult.ok
+              ? `Connection successful — ${quickbooksTestResult.companyName}.`
+              : `Failed: ${quickbooksTestResult.error}`}
+          </p>
+        )}
+
+        <div className="mt-4 flex gap-2">
+          <button
+            onClick={onTestQuickBooks}
+            disabled={
+              quickbooksTesting ||
+              !quickbooksForm.clientId ||
+              !quickbooksForm.clientSecret ||
+              !quickbooksForm.refreshToken ||
+              !quickbooksForm.realmId
+            }
+            className="rounded border border-neutral-700 px-3 py-1.5 text-sm text-white disabled:opacity-40"
+          >
+            {quickbooksTesting ? 'Testing…' : 'Test connection'}
+          </button>
+          <button
+            onClick={onSaveQuickBooks}
+            disabled={
+              quickbooksSaving ||
+              !quickbooksForm.clientId ||
+              !quickbooksForm.clientSecret ||
+              !quickbooksForm.refreshToken ||
+              !quickbooksForm.realmId
+            }
+            className="rounded bg-primary px-3 py-1.5 text-sm font-semibold text-black disabled:opacity-40"
+          >
+            {quickbooksSaving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+
+        {quickbooksCurrent && (
+          <div className="mt-5 border-t border-neutral-800 pt-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+              Migrate historical data from Square
+            </h3>
+            <p className="mt-1 text-xs text-neutral-500">
+              Pushes every non-draft invoice's customer, invoice, and payment history into
+              QuickBooks. Safe to re-run — invoices already migrated are skipped, so an
+              interrupted run can just be triggered again. Square remains the live invoicing
+              system until you say otherwise.
+            </p>
+            <button
+              onClick={onMigrateQuickBooks}
+              disabled={quickbooksMigrating}
+              className="mt-3 rounded border border-neutral-700 px-3 py-1.5 text-sm text-white disabled:opacity-40"
+            >
+              {quickbooksMigrating ? 'Migrating…' : 'Run migration'}
+            </button>
+            {quickbooksMigrateResult && (
+              <div className="mt-3 text-xs text-neutral-400">
+                {quickbooksMigrateResult.ok ? (
+                  <p>
+                    {quickbooksMigrateResult.invoicesCreated} invoice
+                    {quickbooksMigrateResult.invoicesCreated === 1 ? '' : 's'} created in QuickBooks,{' '}
+                    {quickbooksMigrateResult.paymentsRecorded} payment
+                    {quickbooksMigrateResult.paymentsRecorded === 1 ? '' : 's'} recorded,{' '}
+                    {quickbooksMigrateResult.customersMatched} customer
+                    {quickbooksMigrateResult.customersMatched === 1 ? '' : 's'} matched/created (
+                    {quickbooksMigrateResult.invoicesSkipped} already migrated or drafts, skipped).
+                  </p>
+                ) : (
+                  <p className="text-red-400">{quickbooksMigrateResult.error}</p>
                 )}
               </div>
             )}

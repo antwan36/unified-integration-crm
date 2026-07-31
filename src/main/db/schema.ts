@@ -27,6 +27,9 @@ CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
 CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(status);
 
 ALTER TABLE contacts ADD COLUMN IF NOT EXISTS "jobType" TEXT;
+ALTER TABLE contacts ADD COLUMN IF NOT EXISTS "quickbooksCustomerId" TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_contacts_quickbooksCustomerId ON contacts("quickbooksCustomerId");
 
 CREATE TABLE IF NOT EXISTS activities (
   id TEXT PRIMARY KEY,
@@ -97,6 +100,9 @@ ALTER TABLE invoices ADD COLUMN IF NOT EXISTS "shippingCents" INTEGER NOT NULL D
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS "costCents" INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS "paidCents" INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS "refundedCents" INTEGER NOT NULL DEFAULT 0;
+-- Set once this invoice has been pushed into QuickBooks (live create, or the one-time
+-- historical migration from Square) — makes the migration idempotent/resumable.
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS "quickbooksInvoiceId" TEXT UNIQUE;
 
 CREATE INDEX IF NOT EXISTS idx_invoices_contact ON invoices("contactId");
 CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);

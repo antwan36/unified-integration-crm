@@ -265,6 +265,7 @@ export interface Invoice {
   status: InvoiceStatus
   invoiceNumber: string | null
   publicUrl: string | null
+  quickbooksInvoiceId: string | null
   createdAt: string
   updatedAt: string
 }
@@ -406,6 +407,42 @@ export interface SquareTestResult {
   ok: boolean
   error?: string
   locations?: SquareLocation[]
+}
+
+// --- QuickBooks Online ---
+
+export type QuickBooksEnvironment = 'production' | 'sandbox'
+
+export interface QuickBooksCredentials {
+  clientId: string
+  clientSecret: string
+  refreshToken: string
+  accessToken: string | null
+  accessTokenExpiresAt: string | null
+  realmId: string
+  environment: QuickBooksEnvironment
+}
+
+export interface QuickBooksSettings {
+  environment: QuickBooksEnvironment
+  realmId: string
+  companyName: string | null
+  hasToken: boolean
+}
+
+export interface QuickBooksTestResult {
+  ok: boolean
+  error?: string
+  companyName?: string
+}
+
+export interface QuickBooksSyncResult {
+  ok: boolean
+  error?: string
+  customersMatched: number
+  invoicesCreated: number
+  invoicesSkipped: number
+  paymentsRecorded: number
 }
 
 export type EstimateStatus = 'draft' | 'sent' | 'signed' | 'invoiced'

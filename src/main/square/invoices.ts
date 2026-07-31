@@ -12,9 +12,11 @@ import {
   createInvoiceRecord,
   deleteInvoiceRecord,
   getInvoice,
+  markInvoicePaid,
   updateInvoiceStatus
 } from '../db/invoices'
 import { createActivity } from '../db/activities'
+import { queueReviewRequest } from '../db/reviewRequests'
 import type {
   CreateInvoiceInput,
   InvoiceStatus,
@@ -143,8 +145,11 @@ async function createSquareInvoice(
         title,
         delivery_method: 'EMAIL',
         payment_requests: [{ request_type: 'BALANCE', due_date: dueDate }],
+        // Online payment collection is intentionally disabled — invoices are sent as
+        // documents only, the client pays some other way, and it gets marked paid
+        // manually in the CRM (see markInvoicePaid in db/invoices.ts).
         accepted_payment_methods: {
-          card: true,
+          card: false,
           square_gift_card: false,
           bank_account: false,
           buy_now_pay_later: false,
@@ -371,12 +376,42 @@ export async function sendDraftInvoice(localInvoiceId: string): Promise<InvoiceW
   return getInvoice(local.id)
 }
 
+/**
+ * Marks an invoice paid outside of Square (online card payment is disabled — see
+ * createSquareInvoice above) and mirrors what used to happen automatically when
+ * Square reported a paid invoice: logs an activity and queues a review request.
+ */
+export async function markInvoicePaidManually(localInvoiceId: string): Promise<InvoiceWithLineItems | null> {
+  const local = await getInvoice(localInvoiceId)
+  if (!local) throw new Error('Invoice not found')
+  if (local.status === 'PAID') return local
+
+  await markInvoicePaid(local.id)
+  await createActivity({
+    contactId: local.contactId,
+    type: 'invoice',
+    subject: `Invoice marked paid — ${local.title}`,
+    body: `${formatDollars(local.totalCents)} was marked as paid manually.`,
+    direction: null
+  })
+  await queueReviewRequest(local.contactId, local.id)
+
+  return getInvoice(local.id)
+}
+
+function formatDollars(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`
+}
+
 export async function refreshInvoice(localInvoiceId: string): Promise<void> {
   const creds = await loadSquareCredentials()
   if (!creds) return
 
   const local = await getInvoice(localInvoiceId)
   if (!local?.squareInvoiceId) return
+  // Once marked PAID (manually, since online payment is disabled), Square has
+  // nothing new to tell us — never let a sync downgrade it back to unpaid.
+  if (local.status === 'PAID') return
 
   const { invoice } = await squareRequest<{ invoice: SquareInvoice }>(
     creds,

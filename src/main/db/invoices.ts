@@ -30,6 +30,7 @@ interface InvoiceRow {
   status: string
   invoiceNumber: string | null
   publicUrl: string | null
+  quickbooksInvoiceId: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -61,6 +62,7 @@ function toInvoice(row: InvoiceRow): Invoice {
     status: row.status as InvoiceStatus,
     invoiceNumber: row.invoiceNumber,
     publicUrl: row.publicUrl,
+    quickbooksInvoiceId: row.quickbooksInvoiceId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString()
   }
@@ -310,9 +312,11 @@ export async function upsertInvoiceFromSquare(
         (id, "contactId", "squareInvoiceId", "squareOrderId", title, "dueDate", "subtotalCents", "taxPercent", "shippingCents", "totalCents", "paidCents", "refundedCents", status, "invoiceNumber", "publicUrl")
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        ON CONFLICT ("squareInvoiceId") DO UPDATE SET
-         status = EXCLUDED.status,
-         "paidCents" = EXCLUDED."paidCents",
-         "refundedCents" = EXCLUDED."refundedCents",
+         -- Online payment via Square is disabled, so PAID now only ever comes from
+         -- markInvoicePaid() — never let a sync downgrade it back to unpaid.
+         status = CASE WHEN invoices.status = 'PAID' THEN invoices.status ELSE EXCLUDED.status END,
+         "paidCents" = CASE WHEN invoices.status = 'PAID' THEN invoices."paidCents" ELSE EXCLUDED."paidCents" END,
+         "refundedCents" = CASE WHEN invoices.status = 'PAID' THEN invoices."refundedCents" ELSE EXCLUDED."refundedCents" END,
          "invoiceNumber" = COALESCE(EXCLUDED."invoiceNumber", invoices."invoiceNumber"),
          "publicUrl" = COALESCE(EXCLUDED."publicUrl", invoices."publicUrl"),
          "updatedAt" = now()
@@ -390,6 +394,27 @@ export async function updateInvoiceStatus(
      WHERE id = $6`,
     [status, invoiceNumber, publicUrl, paidCents, refundedCents, id]
   )
+}
+
+/**
+ * Marks an invoice paid in full outside of any payment processor — online card
+ * payment via Square is disabled (see square/invoices.ts), so this is now the
+ * normal way an invoice becomes PAID. refreshInvoice()/upsertInvoiceFromSquare
+ * both refuse to downgrade a PAID invoice, so this sticks even after the next sync.
+ */
+export async function markInvoicePaid(id: string): Promise<Invoice | null> {
+  const result = await getDb().query<InvoiceRow>(
+    `UPDATE invoices SET status = 'PAID', "paidCents" = "totalCents", "updatedAt" = now() WHERE id = $1 RETURNING *`,
+    [id]
+  )
+  return result.rows[0] ? toInvoice(result.rows[0]) : null
+}
+
+export async function setQuickBooksInvoiceId(id: string, quickbooksInvoiceId: string): Promise<void> {
+  await getDb().query('UPDATE invoices SET "quickbooksInvoiceId" = $1 WHERE id = $2', [
+    quickbooksInvoiceId,
+    id
+  ])
 }
 
 /**
